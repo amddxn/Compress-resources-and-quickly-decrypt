@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 final class RenameTableModel extends AbstractTableModel {
-    private static final String[] COLUMNS = {"原文件", "新文件", "状态", "说明"};
+    private static final String[] COLUMNS = {"原文件", "新文件", "识别结果", "状态", "说明"};
     private List<RenameItem> items = new ArrayList<>();
 
     public void setItems(List<RenameItem> items) {
@@ -40,8 +40,9 @@ final class RenameTableModel extends AbstractTableModel {
         return switch (columnIndex) {
             case 0 -> item.source().toString();
             case 1 -> item.source().equals(item.target()) ? "—" : item.target().toString();
-            case 2 -> item.status().displayName();
-            case 3 -> item.message();
+            case 2 -> item.detection();
+            case 3 -> item.status().displayName();
+            case 4 -> item.message();
             default -> "";
         };
     }

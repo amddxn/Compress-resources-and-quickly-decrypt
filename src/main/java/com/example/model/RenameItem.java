@@ -6,12 +6,14 @@ import java.util.Objects;
 public final class RenameItem {
     private final Path source;
     private final Path target;
+    private final String detection;
     private RenameStatus status;
     private String message;
 
-    public RenameItem(Path source, Path target, RenameStatus status, String message) {
+    public RenameItem(Path source, Path target, String detection, RenameStatus status, String message) {
         this.source = Objects.requireNonNull(source);
         this.target = Objects.requireNonNull(target);
+        this.detection = Objects.requireNonNull(detection);
         this.status = Objects.requireNonNull(status);
         this.message = message == null ? "" : message;
     }
@@ -22,6 +24,10 @@ public final class RenameItem {
 
     public Path target() {
         return target;
+    }
+
+    public String detection() {
+        return detection;
     }
 
     public RenameStatus status() {

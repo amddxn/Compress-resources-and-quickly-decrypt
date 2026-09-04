@@ -3,6 +3,7 @@ package com.example.ui;
 import com.example.model.RenameItem;
 import com.example.model.RenameStatus;
 import com.example.service.FileRenameService;
+import com.example.service.RenameMode;
 
 import javax.swing.BorderFactory;
 import javax.swing.ButtonGroup;
@@ -47,6 +48,9 @@ public final class MainWindow extends JFrame {
     private final ExtensionToggleButton zipButton = new ExtensionToggleButton("ZIP", true);
     private final ExtensionToggleButton sevenZipButton = new ExtensionToggleButton("7Z", false);
     private final ExtensionToggleButton rarButton = new ExtensionToggleButton("RAR", false);
+    private final ExtensionToggleButton zipMultipartButton = new ExtensionToggleButton("ZIP 分卷", false);
+    private final ExtensionToggleButton sevenZipMultipartButton = new ExtensionToggleButton("7Z 分卷", false);
+    private final ExtensionToggleButton rarMultipartButton = new ExtensionToggleButton("RAR 分卷", false);
 
     public MainWindow() {
         super("后缀转换助手");
@@ -130,18 +134,34 @@ public final class MainWindow extends JFrame {
         Theme.applyCardStyle(card);
         card.add(sectionTitle("2  选择目标后缀"), BorderLayout.NORTH);
 
-        JPanel choices = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 3));
+        JPanel choices = new JPanel(new GridLayout(2, 1, 0, 6));
         choices.setOpaque(false);
         ButtonGroup group = new ButtonGroup();
         group.add(zipButton);
         group.add(sevenZipButton);
         group.add(rarButton);
-        choices.add(zipButton);
-        choices.add(sevenZipButton);
-        choices.add(rarButton);
+        group.add(zipMultipartButton);
+        group.add(sevenZipMultipartButton);
+        group.add(rarMultipartButton);
+
+        JPanel normalChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        normalChoices.setOpaque(false);
+        normalChoices.add(new JLabel("普通："));
+        normalChoices.add(zipButton);
+        normalChoices.add(sevenZipButton);
+        normalChoices.add(rarButton);
+        choices.add(normalChoices);
+
+        JPanel multipartChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        multipartChoices.setOpaque(false);
+        multipartChoices.add(new JLabel("分卷："));
+        multipartChoices.add(zipMultipartButton);
+        multipartChoices.add(sevenZipMultipartButton);
+        multipartChoices.add(rarMultipartButton);
+        choices.add(multipartChoices);
         card.add(choices, BorderLayout.CENTER);
 
-        JLabel note = new JLabel("精确后缀才保留：.71z、.7z1、.z1ip、.rar1 均会替换");
+        JLabel note = new JLabel("分卷模式会自动避开已有卷号，并优先补最小缺失卷号");
         note.setForeground(Theme.MUTED_TEXT);
         note.setFont(Theme.SMALL_FONT);
         card.add(note, BorderLayout.SOUTH);
@@ -176,11 +196,12 @@ public final class MainWindow extends JFrame {
         table.getTableHeader().setPreferredSize(new Dimension(0, 34));
         table.getTableHeader().setBackground(new Color(239, 242, 249));
         table.getTableHeader().setForeground(Theme.MUTED_TEXT);
-        table.getColumnModel().getColumn(0).setPreferredWidth(310);
-        table.getColumnModel().getColumn(1).setPreferredWidth(310);
-        table.getColumnModel().getColumn(2).setPreferredWidth(90);
-        table.getColumnModel().getColumn(2).setCellRenderer(new StatusCellRenderer());
-        table.getColumnModel().getColumn(3).setPreferredWidth(180);
+        table.getColumnModel().getColumn(0).setPreferredWidth(280);
+        table.getColumnModel().getColumn(1).setPreferredWidth(280);
+        table.getColumnModel().getColumn(2).setPreferredWidth(150);
+        table.getColumnModel().getColumn(3).setPreferredWidth(90);
+        table.getColumnModel().getColumn(3).setCellRenderer(new StatusCellRenderer());
+        table.getColumnModel().getColumn(4).setPreferredWidth(210);
 
         JScrollPane scrollPane = new JScrollPane(table);
         scrollPane.setBorder(BorderFactory.createLineBorder(Theme.BORDER));
@@ -245,6 +266,9 @@ public final class MainWindow extends JFrame {
         zipButton.addActionListener(event -> refreshPlan());
         sevenZipButton.addActionListener(event -> refreshPlan());
         rarButton.addActionListener(event -> refreshPlan());
+        zipMultipartButton.addActionListener(event -> refreshPlan());
+        sevenZipMultipartButton.addActionListener(event -> refreshPlan());
+        rarMultipartButton.addActionListener(event -> refreshPlan());
         executeButton.addActionListener(event -> executeRename());
     }
 
@@ -276,7 +300,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void refreshPlan() {
-        List<RenameItem> plan = renameService.createPlan(selectedFiles, selectedExtension());
+        List<RenameItem> plan = renameService.createPlan(selectedFiles, selectedMode());
         tableModel.setItems(plan);
         long ready = count(plan, RenameStatus.READY);
         long unchanged = count(plan, RenameStatus.UNCHANGED);
@@ -343,17 +367,29 @@ public final class MainWindow extends JFrame {
         zipButton.setEnabled(enabled);
         sevenZipButton.setEnabled(enabled);
         rarButton.setEnabled(enabled);
+        zipMultipartButton.setEnabled(enabled);
+        sevenZipMultipartButton.setEnabled(enabled);
+        rarMultipartButton.setEnabled(enabled);
         executeButton.setEnabled(enabled);
     }
 
-    private String selectedExtension() {
+    private RenameMode selectedMode() {
+        if (zipMultipartButton.isSelected()) {
+            return RenameMode.ZIP_MULTIPART;
+        }
+        if (sevenZipMultipartButton.isSelected()) {
+            return RenameMode.SEVEN_ZIP_MULTIPART;
+        }
+        if (rarMultipartButton.isSelected()) {
+            return RenameMode.RAR_MULTIPART;
+        }
         if (sevenZipButton.isSelected()) {
-            return "7z";
+            return RenameMode.SEVEN_ZIP;
         }
         if (rarButton.isSelected()) {
-            return "rar";
+            return RenameMode.RAR;
         }
-        return "zip";
+        return RenameMode.ZIP;
     }
 
     private long count(List<RenameItem> items, RenameStatus status) {

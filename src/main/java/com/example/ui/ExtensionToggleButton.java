@@ -13,7 +13,7 @@ final class ExtensionToggleButton extends JToggleButton {
     ExtensionToggleButton(String text, boolean selected) {
         super(text, selected);
         setFont(Theme.NORMAL_FONT.deriveFont(Font.BOLD));
-        setPreferredSize(new Dimension(82, 38));
+        setPreferredSize(new Dimension(text.contains("分卷") ? 108 : 82, 38));
         setFocusPainted(false);
         setBorderPainted(false);
         setContentAreaFilled(false);
