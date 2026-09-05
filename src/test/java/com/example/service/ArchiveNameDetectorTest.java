@@ -35,7 +35,7 @@ public final class ArchiveNameDetectorTest {
         assertMultipart(detections, "legacy.rar", "RAR 旧式分卷（首卷）");
         assertConvertibleMultipart(detections, "restore.001", "restore.7z.001", "7z");
         assertConvertibleMultipart(detections, "restore.003", "restore.zip.003", "zip");
-        assertConvertibleMultipart(detections, "restore.005", "restore.part005.rar", "rar");
+        assertConvertibleMultipart(detections, "restore.005", "restore.part5.rar", "rar");
         assertConvertibleMultipart(detections, "nostart.003", "nostart.7z.003", "7z");
         assertConvertibleMultipart(detections, "nostart.005", "nostart.zip.005", "zip");
 

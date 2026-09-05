@@ -161,7 +161,7 @@ public final class MainWindow extends JFrame {
         choices.add(multipartChoices);
         card.add(choices, BorderLayout.CENTER);
 
-        JLabel note = new JLabel("分卷模式会自动避开已有卷号，并优先补最小缺失卷号");
+        JLabel note = new JLabel("分卷按钮决定输出格式；按文件名分组识别卷号，并自动补齐缺号");
         note.setForeground(Theme.MUTED_TEXT);
         note.setFont(Theme.SMALL_FONT);
         card.add(note, BorderLayout.SOUTH);

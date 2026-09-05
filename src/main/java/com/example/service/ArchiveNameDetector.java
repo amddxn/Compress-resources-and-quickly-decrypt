@@ -154,13 +154,28 @@ public final class ArchiveNameDetector {
             if (protectedName || volumeBaseName == null || volumeNumber == null) {
                 return source;
             }
-            String targetName = switch (targetExtension.toLowerCase(Locale.ROOT)) {
-                case "7z" -> volumeBaseName + ".7z." + volumeNumber;
-                case "zip" -> volumeBaseName + ".zip." + volumeNumber;
-                case "rar" -> volumeBaseName + ".part" + volumeNumber + ".rar";
+            String normalizedExtension = targetExtension.toLowerCase(Locale.ROOT);
+            String normalizedBaseName = removeDuplicateFormatSuffix(volumeBaseName, normalizedExtension);
+            String targetName = switch (normalizedExtension) {
+                case "7z" -> normalizedBaseName + ".7z." + volumeNumber;
+                case "zip" -> normalizedBaseName + ".zip." + volumeNumber;
+                case "rar" -> normalizedBaseName + ".part" + unpaddedNumber(volumeNumber) + ".rar";
                 default -> throw new IllegalArgumentException("目标后缀只能是 zip、7z 或 rar");
             };
             return source.resolveSibling(targetName);
+        }
+
+        private String removeDuplicateFormatSuffix(String baseName, String extension) {
+            String suffix = "." + extension;
+            if (baseName.toLowerCase(Locale.ROOT).endsWith(suffix)) {
+                return baseName.substring(0, baseName.length() - suffix.length());
+            }
+            return baseName;
+        }
+
+        private String unpaddedNumber(String number) {
+            String result = number.replaceFirst("^0+(?!$)", "");
+            return result.isEmpty() ? "0" : result;
         }
     }
 
