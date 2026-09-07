@@ -38,7 +38,7 @@
 
 分卷压缩只调用一次入口文件：ZIP 使用 `.zip`，7Z 使用 `.7z.001`，RAR 使用 `.part1.rar`。
 
-每一层解压成功后，程序会递归扫描本次新建的输出目录。发现后缀格式正确的普通 ZIP、7Z、RAR，或位于同一目录中的标准分卷压缩包后，会自动加入下一层解压队列，直到没有新的压缩包。设置中可将最大嵌套层数设为 1–50，默认 10；达到限制后会停止继续展开并给出提示。当前版本暂不处理伪装后缀和分散在不同文件夹内的嵌套分卷。
+每一层解压成功后，程序会递归扫描本次新建的输出目录。发现后缀格式正确的普通 ZIP、7Z、RAR 或标准分卷压缩包后，会自动加入下一层解压队列，直到没有新的压缩包。如果同一压缩包的标准分卷散落在本次解压结果的多个子文件夹内，程序会按照格式、基础文件名、唯一分卷编号和入口卷文件特征进行校验；确认属于同一组后，迁移到当前层输出目录中的 `_分卷整理` 独立文件夹，再从入口卷解压。重号、缺少入口卷或文件特征不符的可疑组不会迁移，并会在最终结果中提示。设置中可将最大嵌套层数设为 1–50，默认 10；达到限制后会停止继续展开并给出提示。当前版本仍不处理嵌套压缩包的伪装后缀。
 
 Bandizip 官网：<https://www.bandisoft.com/bandizip/>。常见默认路径为 `C:\Program Files\Bandizip\bz.exe`，32 位安装也可能位于 `C:\Program Files (x86)\Bandizip\bz.exe`。
 
@@ -49,10 +49,10 @@ Windows 下可以直接双击 `run.bat`，脚本只负责编译并启动界面�
 也可以直接运行已经生成的 Windows 安装程序：
 
 ```text
-release/ExtensionRenamer-2.3.1.exe
+release/ExtensionRenamer-2.4.0.exe
 ```
 
-安装包内置精简 Java 运行时，目标电脑不需要单独安装 Java。`dist/2.3.1/ExtensionRenamer/ExtensionRenamer.exe` 是无需安装的便携版本，但必须和同目录下的 `app`、`runtime` 文件夹一起使用。
+安装包内置精简 Java 运行时，目标电脑不需要单独安装 Java。`dist/2.4.0/ExtensionRenamer/ExtensionRenamer.exe` 是无需安装的便携版本，但必须和同目录下的 `app`、`runtime` 文件夹一起使用。
 
 在 IntelliJ IDEA 中打开项目，确认 Project SDK 为 Java 17，然后运行 `com.example.Main`。
 

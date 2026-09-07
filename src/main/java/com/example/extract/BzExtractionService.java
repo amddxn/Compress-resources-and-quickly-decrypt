@@ -37,6 +37,9 @@ public final class BzExtractionService {
             List<ExtractionResult> allResults = new ArrayList<>();
             int nestedArchiveCount = 0;
             boolean depthLimitReached = false;
+            int consolidatedMultipartGroupCount = 0;
+            int movedMultipartFileCount = 0;
+            List<String> organizationWarnings = new ArrayList<>();
             List<ExtractionTask> currentLayer = tasks;
 
             while (!currentLayer.isEmpty()) {
@@ -53,8 +56,16 @@ public final class BzExtractionService {
                 }
 
                 int nextDepth = currentLayer.get(0).nestedDepth() + 1;
-                List<ExtractionTask> nextLayer = planner.createNestedTasks(
+                ArchiveExtractionPlanner.NestedArchivePlan nestedPlan = planner.createNestedPlan(
                         successfulOutputDirectories, nextDepth);
+                consolidatedMultipartGroupCount += nestedPlan.consolidatedGroupCount();
+                movedMultipartFileCount += nestedPlan.movedVolumeCount();
+                organizationWarnings.addAll(nestedPlan.warnings());
+                if (nestedPlan.consolidatedGroupCount() > 0) {
+                    progress.accept("已整理跨文件夹分卷 " + nestedPlan.consolidatedGroupCount()
+                            + " 组，共迁移 " + nestedPlan.movedVolumeCount() + " 个文件");
+                }
+                List<ExtractionTask> nextLayer = nestedPlan.tasks();
                 if (nextLayer.isEmpty()) {
                     break;
                 }
@@ -68,7 +79,8 @@ public final class BzExtractionService {
                         + nextLayer.size() + " 个，继续解压……");
                 currentLayer = nextLayer;
             }
-            return new ExtractionBatchResult(allResults, nestedArchiveCount, depthLimitReached);
+            return new ExtractionBatchResult(allResults, nestedArchiveCount, depthLimitReached,
+                    consolidatedMultipartGroupCount, movedMultipartFileCount, organizationWarnings);
         } finally {
             executor.shutdownNow();
         }

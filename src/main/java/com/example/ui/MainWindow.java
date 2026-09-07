@@ -480,9 +480,18 @@ public final class MainWindow extends JFrame {
                     summary.append("，其中嵌套压缩包 ")
                             .append(extractionResult.nestedArchiveCount()).append(" 个");
                 }
+                if (extractionResult.consolidatedMultipartGroupCount() > 0) {
+                    summary.append("\n已整理跨文件夹分卷 ")
+                            .append(extractionResult.consolidatedMultipartGroupCount())
+                            .append(" 组，迁移 ")
+                            .append(extractionResult.movedMultipartFileCount()).append(" 个文件");
+                }
                 if (extractionResult.depthLimitReached()) {
                     summary.append("\n已达到最大嵌套层数，剩余压缩包未继续解压");
                 }
+                extractionResult.organizationWarnings().stream()
+                        .limit(4)
+                        .forEach(warning -> summary.append("\n• ").append(warning));
                 appendExtractionFailures(summary, extractionResult);
             }
         }
@@ -496,7 +505,8 @@ public final class MainWindow extends JFrame {
         extractButton.setEnabled(false);
         boolean hasExtractionFailure = operationError != null
                 || extractionResult != null && (extractionResult.failureCount() > 0
-                || extractionResult.depthLimitReached());
+                || extractionResult.depthLimitReached()
+                || !extractionResult.organizationWarnings().isEmpty());
         JOptionPane.showMessageDialog(this, summary.toString(), "处理完成",
                 failed > 0 || hasExtractionFailure
                         ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
