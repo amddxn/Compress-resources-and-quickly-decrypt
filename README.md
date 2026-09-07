@@ -28,6 +28,16 @@
 
 例如 `6月新补.ra1r.001` 与 `6月新补.1ra3r3.002` 选择 RAR 分卷后，会恢复为 `6月新补.part1.rar` 与 `6月新补.part2.rar`。`2025.06.7z.mp3` 不会生成重复的 `.7z.7z.001`。
 
+## 后台调用 Bandizip 解压
+
+打开界面右上角的“解压设置”，绑定 Bandizip 安装目录中的 `bz.exe`，选择解压根目录，并设置 1–8 个并发任务。默认并发为 1；设置会保存在当前 Windows 用户配置中。
+
+主界面提供“只修改”和“修改并解压”两个独立按钮。选择“修改并解压”时，程序会先完成全部后缀修改，再在后台调用 `bz.exe`。检测到加密压缩包时才弹出密码窗口，并显式启用系统输入法，可直接输入中文、英文、数字和符号；可以勾选“本次上传任务的所有压缩包都使用此密码”。密码只存在于本次任务的内存中，不会保存，任务完成后立即清除。每个压缩包会解压到“解压根目录/压缩包名称”文件夹，遇到重名文件时自动改名而不覆盖。
+
+分卷压缩只调用一次入口文件：ZIP 使用 `.zip`，7Z 使用 `.7z.001`，RAR 使用 `.part1.rar`。本版本暂不扫描解压结果中的嵌套压缩包。
+
+Bandizip 官网：<https://www.bandisoft.com/bandizip/>。常见默认路径为 `C:\Program Files\Bandizip\bz.exe`，32 位安装也可能位于 `C:\Program Files (x86)\Bandizip\bz.exe`。
+
 ## 运行
 
 Windows 下可以直接双击 `run.bat`，脚本只负责编译并启动界面。
@@ -35,10 +45,10 @@ Windows 下可以直接双击 `run.bat`，脚本只负责编译并启动界面�
 也可以直接运行已经生成的 Windows 安装程序：
 
 ```text
-release/ExtensionRenamer-2.0.3.exe
+release/ExtensionRenamer-2.2.2.exe
 ```
 
-安装包内置精简 Java 运行时，目标电脑不需要单独安装 Java。`dist/2.0.3/ExtensionRenamer/ExtensionRenamer.exe` 是无需安装的便携版本，但必须和同目录下的 `app`、`runtime` 文件夹一起使用。
+安装包内置精简 Java 运行时，目标电脑不需要单独安装 Java。`dist/2.2.2/ExtensionRenamer/ExtensionRenamer.exe` 是无需安装的便携版本，但必须和同目录下的 `app`、`runtime` 文件夹一起使用。
 
 在 IntelliJ IDEA 中打开项目，确认 Project SDK 为 Java 17，然后运行 `com.example.Main`。
 
