@@ -34,28 +34,70 @@ public final class BzExtractionService {
 
         ExecutorService executor = Executors.newFixedThreadPool(settings.concurrency());
         try {
-            List<Future<ExtractionResult>> futures = new ArrayList<>();
-            for (ExtractionTask task : tasks) {
-                Callable<ExtractionResult> work = () -> extractOne(
-                        task, settings, passwordProvider, progress);
-                futures.add(executor.submit(work));
-            }
+            List<ExtractionResult> allResults = new ArrayList<>();
+            int nestedArchiveCount = 0;
+            boolean depthLimitReached = false;
+            List<ExtractionTask> currentLayer = tasks;
 
-            List<ExtractionResult> results = new ArrayList<>();
-            for (int index = 0; index < futures.size(); index++) {
-                try {
-                    results.add(futures.get(index).get());
-                } catch (ExecutionException exception) {
-                    Throwable cause = exception.getCause();
-                    ExtractionTask task = tasks.get(index);
-                    results.add(new ExtractionResult(task.archive(), task.outputDirectory(), false, -1,
-                            friendlyMessage(cause)));
+            while (!currentLayer.isEmpty()) {
+                List<ExtractionResult> layerResults = executeLayer(
+                        currentLayer, settings, passwordProvider, progress, executor);
+                allResults.addAll(layerResults);
+
+                List<Path> successfulOutputDirectories = layerResults.stream()
+                        .filter(ExtractionResult::success)
+                        .map(ExtractionResult::outputDirectory)
+                        .toList();
+                if (successfulOutputDirectories.isEmpty()) {
+                    break;
                 }
+
+                int nextDepth = currentLayer.get(0).nestedDepth() + 1;
+                List<ExtractionTask> nextLayer = planner.createNestedTasks(
+                        successfulOutputDirectories, nextDepth);
+                if (nextLayer.isEmpty()) {
+                    break;
+                }
+                if (nextDepth > settings.maxNestedDepth()) {
+                    depthLimitReached = true;
+                    break;
+                }
+
+                nestedArchiveCount += nextLayer.size();
+                progress.accept("发现第 " + nextDepth + " 层压缩包 "
+                        + nextLayer.size() + " 个，继续解压……");
+                currentLayer = nextLayer;
             }
-            return new ExtractionBatchResult(results);
+            return new ExtractionBatchResult(allResults, nestedArchiveCount, depthLimitReached);
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    private List<ExtractionResult> executeLayer(List<ExtractionTask> tasks,
+                                                ExtractionSettings settings,
+                                                PasswordProvider passwordProvider,
+                                                Consumer<String> progress,
+                                                ExecutorService executor) throws InterruptedException {
+        List<Future<ExtractionResult>> futures = new ArrayList<>();
+        for (ExtractionTask task : tasks) {
+            Callable<ExtractionResult> work = () -> extractOne(
+                    task, settings, passwordProvider, progress);
+            futures.add(executor.submit(work));
+        }
+
+        List<ExtractionResult> results = new ArrayList<>();
+        for (int index = 0; index < futures.size(); index++) {
+            try {
+                results.add(futures.get(index).get());
+            } catch (ExecutionException exception) {
+                Throwable cause = exception.getCause();
+                ExtractionTask task = tasks.get(index);
+                results.add(new ExtractionResult(task.archive(), task.outputDirectory(), false, -1,
+                        friendlyMessage(cause)));
+            }
+        }
+        return results;
     }
 
     private ExtractionResult extractOne(ExtractionTask task,
@@ -63,11 +105,14 @@ public final class BzExtractionService {
                                         PasswordProvider passwordProvider,
                                         Consumer<String> progress) throws IOException, InterruptedException {
         Files.createDirectories(task.outputDirectory());
-        progress.accept("正在解压：" + task.archive().getFileName());
+        String layerText = task.nestedDepth() == 0
+                ? ""
+                : "（嵌套第 " + task.nestedDepth() + " 层）";
+        progress.accept("正在解压" + layerText + "：" + task.archive().getFileName());
 
         char[] password = null;
         try {
-            for (int attemptNumber = 0; attemptNumber < 6; attemptNumber++) {
+            while (true) {
                 ProcessAttempt attempt = runProcess(settings, task, password);
                 if (attempt.exitCode() == 0) {
                     return new ExtractionResult(task.archive(), task.outputDirectory(), true, 0, "解压成功");
@@ -87,8 +132,6 @@ public final class BzExtractionService {
                 }
                 password = suppliedPassword.get();
             }
-            return new ExtractionResult(task.archive(), task.outputDirectory(), false, -1,
-                    "密码尝试次数过多，已停止解压");
         } finally {
             clearPassword(password);
         }

@@ -11,6 +11,8 @@ import javax.swing.JFileChooser;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JSpinner;
+import javax.swing.SpinnerNumberModel;
 import javax.swing.JTextField;
 import javax.swing.event.HyperlinkEvent;
 import java.awt.Component;
@@ -33,6 +35,8 @@ final class ExtractionSettingsDialog {
     private final JTextField outputRootField = new JTextField(34);
     private final JComboBox<Integer> concurrencyBox = new JComboBox<>(
             new Integer[]{1, 2, 3, 4, 5, 6, 7, 8});
+    private final JSpinner maxNestedDepthSpinner = new JSpinner(
+            new SpinnerNumberModel(10, 1, 50, 1));
 
     private ExtractionSettingsDialog(Component owner, ExtractionPreferences preferences) {
         this.owner = owner;
@@ -40,6 +44,7 @@ final class ExtractionSettingsDialog {
         bzPathField.setText(initialBzPath());
         outputRootField.setText(preferences.outputRoot());
         concurrencyBox.setSelectedItem(preferences.concurrency());
+        maxNestedDepthSpinner.setValue(preferences.maxNestedDepth());
     }
 
     static Optional<ExtractionSettings> show(Component owner, ExtractionPreferences preferences) {
@@ -92,6 +97,18 @@ final class ExtractionSettingsDialog {
 
         constraints.gridx = 0;
         constraints.gridy = 3;
+        constraints.gridwidth = 1;
+        constraints.weightx = 0;
+        panel.add(new JLabel("最大嵌套层数"), constraints);
+        constraints.gridx = 1;
+        constraints.weightx = 1;
+        panel.add(maxNestedDepthSpinner, constraints);
+        constraints.gridx = 2;
+        constraints.weightx = 0;
+        panel.add(new JLabel("默认 10，范围 1–50"), constraints);
+
+        constraints.gridx = 0;
+        constraints.gridy = 4;
         constraints.gridwidth = 3;
         constraints.weightx = 1;
         constraints.fill = GridBagConstraints.HORIZONTAL;
@@ -201,7 +218,8 @@ final class ExtractionSettingsDialog {
             throw new IllegalArgumentException("解压根目录必须是文件夹");
         }
         return new ExtractionSettings(bzExecutable, outputRoot,
-                (Integer) concurrencyBox.getSelectedItem());
+                (Integer) concurrencyBox.getSelectedItem(),
+                (Integer) maxNestedDepthSpinner.getValue());
     }
 
     private String initialBzPath() {

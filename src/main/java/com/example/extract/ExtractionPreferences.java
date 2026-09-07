@@ -10,6 +10,7 @@ public final class ExtractionPreferences {
     private static final String BZ_PATH = "bzPath";
     private static final String OUTPUT_ROOT = "outputRoot";
     private static final String CONCURRENCY = "concurrency";
+    private static final String MAX_NESTED_DEPTH = "maxNestedDepth";
     private final Preferences preferences = Preferences.userNodeForPackage(ExtractionPreferences.class);
 
     public String bzPath() {
@@ -24,10 +25,15 @@ public final class ExtractionPreferences {
         return Math.max(1, Math.min(8, preferences.getInt(CONCURRENCY, 1)));
     }
 
+    public int maxNestedDepth() {
+        return Math.max(1, Math.min(50, preferences.getInt(MAX_NESTED_DEPTH, 10)));
+    }
+
     public void save(ExtractionSettings settings) {
         preferences.put(BZ_PATH, settings.bzExecutable().toString());
         preferences.put(OUTPUT_ROOT, settings.outputRoot().toString());
         preferences.putInt(CONCURRENCY, settings.concurrency());
+        preferences.putInt(MAX_NESTED_DEPTH, settings.maxNestedDepth());
     }
 
     public Optional<ExtractionSettings> loadSettings() {
@@ -36,7 +42,7 @@ public final class ExtractionPreferences {
         }
         try {
             return Optional.of(new ExtractionSettings(
-                    Path.of(bzPath()), Path.of(outputRoot()), concurrency()));
+                    Path.of(bzPath()), Path.of(outputRoot()), concurrency(), maxNestedDepth()));
         } catch (RuntimeException exception) {
             return Optional.empty();
         }

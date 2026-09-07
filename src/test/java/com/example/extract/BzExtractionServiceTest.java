@@ -30,9 +30,26 @@ public final class BzExtractionServiceTest {
             assertTask(tasks, "pack.7z.001", "pack");
             assertTask(tasks, "set.part1.rar", "set");
 
+            Path nestedRoot = Files.createDirectories(directory.resolve("nested"));
+            Path innerZip = Files.writeString(nestedRoot.resolve("inner.zip"), "zip-main");
+            Files.writeString(nestedRoot.resolve("inner.z01"), "zip-volume");
+            Path inner7z = Files.writeString(nestedRoot.resolve("deep.7z.001"), "7z-one");
+            Files.writeString(nestedRoot.resolve("deep.7z.002"), "7z-two");
+            Path innerRar = Files.writeString(nestedRoot.resolve("more.part1.rar"), "rar-one");
+            Files.writeString(nestedRoot.resolve("more.part2.rar"), "rar-two");
+            Files.writeString(nestedRoot.resolve("not-an-archive.pdf"), "ignored");
+            List<ExtractionTask> nestedTasks = planner.createNestedTasks(List.of(nestedRoot), 1);
+            assertEquals(3, nestedTasks.size(), "嵌套扫描必须识别普通包和分卷入口");
+            assertTask(nestedTasks, innerZip.getFileName().toString(), "inner");
+            assertTask(nestedTasks, inner7z.getFileName().toString(), "deep");
+            assertTask(nestedTasks, innerRar.getFileName().toString(), "more");
+            assertTrue(nestedTasks.stream().allMatch(item -> item.nestedDepth() == 1),
+                    "嵌套任务必须记录正确层数");
+
             BzExtractionService service = new BzExtractionService();
             ExtractionSettings settings = new ExtractionSettings(
-                    directory.resolve("bz.exe"), outputRoot, 3);
+                    directory.resolve("bz.exe"), outputRoot, 3, 12);
+            assertEquals(12, settings.maxNestedDepth(), "最大嵌套层数设置必须保留");
             ExtractionTask task = new ExtractionTask(zip, outputRoot.resolve("album"));
             List<String> command = service.createCommand(settings, task, "秘密".toCharArray());
             assertTrue(command.contains("x"), "命令必须使用解压操作");

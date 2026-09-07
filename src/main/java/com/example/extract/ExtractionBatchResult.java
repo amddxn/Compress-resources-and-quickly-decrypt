@@ -2,7 +2,13 @@ package com.example.extract;
 
 import java.util.List;
 
-public record ExtractionBatchResult(List<ExtractionResult> results) {
+public record ExtractionBatchResult(List<ExtractionResult> results,
+                                    int nestedArchiveCount,
+                                    boolean depthLimitReached) {
+    public ExtractionBatchResult(List<ExtractionResult> results) {
+        this(results, 0, false);
+    }
+
     public ExtractionBatchResult {
         results = List.copyOf(results);
     }

@@ -476,6 +476,13 @@ public final class MainWindow extends JFrame {
             } else {
                 summary.append("\n解压完成：成功 ").append(extractionResult.successCount())
                         .append("，失败 ").append(extractionResult.failureCount());
+                if (extractionResult.nestedArchiveCount() > 0) {
+                    summary.append("，其中嵌套压缩包 ")
+                            .append(extractionResult.nestedArchiveCount()).append(" 个");
+                }
+                if (extractionResult.depthLimitReached()) {
+                    summary.append("\n已达到最大嵌套层数，剩余压缩包未继续解压");
+                }
                 appendExtractionFailures(summary, extractionResult);
             }
         }
@@ -488,7 +495,8 @@ public final class MainWindow extends JFrame {
         executeButton.setEnabled(false);
         extractButton.setEnabled(false);
         boolean hasExtractionFailure = operationError != null
-                || extractionResult != null && extractionResult.failureCount() > 0;
+                || extractionResult != null && (extractionResult.failureCount() > 0
+                || extractionResult.depthLimitReached());
         JOptionPane.showMessageDialog(this, summary.toString(), "处理完成",
                 failed > 0 || hasExtractionFailure
                         ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
