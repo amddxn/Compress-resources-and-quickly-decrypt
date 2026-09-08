@@ -274,6 +274,16 @@ public final class FileRenameServiceTest {
         assertTarget(gammaPlan, "gamma.z443101", "gamma.z01");
         assertTarget(gammaPlan, "gamma.zsdf02", "gamma.z02");
 
+        Path screenshotZip = Files.createDirectories(directory.resolve("zip-disturbed-priority"));
+        Path disguisedSecond = Files.writeString(screenshotZip.resolve("7月21.rar"), "second");
+        Path disturbedThird = Files.writeString(screenshotZip.resolve("7月21.z0啊啊2"), "third");
+        Path disturbedEntry = Files.writeString(screenshotZip.resolve("7月21.zissp"), "first");
+        List<RenameItem> disturbedZipPlan = service.createPlan(
+                List.of(disguisedSecond, disturbedThird, disturbedEntry), RenameMode.ZIP_MULTIPART);
+        assertTarget(disturbedZipPlan, "7月21.zissp", "7月21.zip");
+        assertTarget(disturbedZipPlan, "7月21.rar", "7月21.z01");
+        assertTarget(disturbedZipPlan, "7月21.z0啊啊2", "7月21.z02");
+
         Path groupsCase = Files.createDirectories(directory.resolve("independent-groups"));
         Path aOne = Files.writeString(groupsCase.resolve("A.foo001"), "a1");
         Path bOne = Files.writeString(groupsCase.resolve("B.foo001"), "b1");

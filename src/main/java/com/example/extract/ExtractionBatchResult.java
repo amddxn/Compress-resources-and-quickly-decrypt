@@ -7,15 +7,29 @@ public record ExtractionBatchResult(List<ExtractionResult> results,
                                     boolean depthLimitReached,
                                     int consolidatedMultipartGroupCount,
                                     int movedMultipartFileCount,
-                                    List<String> organizationWarnings) {
+                                    List<String> organizationWarnings,
+                                    int recoveredDisguisedFileCount,
+                                    int userConfirmedMultipartMovedCount,
+                                    boolean stoppedByUser) {
     public ExtractionBatchResult(List<ExtractionResult> results) {
-        this(results, 0, false, 0, 0, List.of());
+        this(results, 0, false, 0, 0, List.of(), 0, 0, false);
     }
 
     public ExtractionBatchResult(List<ExtractionResult> results,
                                  int nestedArchiveCount,
                                  boolean depthLimitReached) {
-        this(results, nestedArchiveCount, depthLimitReached, 0, 0, List.of());
+        this(results, nestedArchiveCount, depthLimitReached, 0, 0, List.of(), 0, 0, false);
+    }
+
+    public ExtractionBatchResult(List<ExtractionResult> results,
+                                 int nestedArchiveCount,
+                                 boolean depthLimitReached,
+                                 int consolidatedMultipartGroupCount,
+                                 int movedMultipartFileCount,
+                                 List<String> organizationWarnings) {
+        this(results, nestedArchiveCount, depthLimitReached,
+                consolidatedMultipartGroupCount, movedMultipartFileCount,
+                organizationWarnings, 0, 0, false);
     }
 
     public ExtractionBatchResult {

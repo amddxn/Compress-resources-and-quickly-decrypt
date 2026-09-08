@@ -13,8 +13,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class FileRenameService {
+    private static final Pattern KNOWN_ARCHIVE_SUFFIX = Pattern.compile(
+            "(?i)(?:\\.7z\\.\\d+|\\.zip\\.\\d+|\\.part\\d+\\.rar|\\.z\\d+|\\.r\\d+|\\.zip|\\.7z|\\.rar)$");
     private final ArchiveNameDetector archiveNameDetector = new ArchiveNameDetector();
     private final MultipartRenamePlanner multipartRenamePlanner = new MultipartRenamePlanner();
 
@@ -23,6 +27,63 @@ public final class FileRenameService {
     }
 
     public List<RenameItem> createPlan(Collection<Path> files, RenameMode mode) {
+        return createPlan(files, mode, false);
+    }
+
+    public List<RenameItem> createSingleMultipartGroupPlan(Collection<Path> files, RenameMode mode) {
+        if (!mode.multipart()) {
+            throw new IllegalArgumentException("仅分卷模式可以强制按单组生成名称");
+        }
+        return createPlan(files, mode, true);
+    }
+
+    public List<RenameItem> createForcedNestedPlan(Collection<Path> files, RenameMode mode) {
+        if (mode.multipart()) {
+            return createSingleMultipartGroupPlan(files, mode);
+        }
+
+        Map<String, Path> uniqueFiles = new LinkedHashMap<>();
+        for (Path file : files) {
+            Path normalized = file.toAbsolutePath().normalize();
+            uniqueFiles.putIfAbsent(pathKey(normalized), normalized);
+        }
+
+        List<RenameItem> result = new ArrayList<>();
+        for (Path source : uniqueFiles.values()) {
+            if (!Files.isRegularFile(source)) {
+                result.add(new RenameItem(source, source, "无法识别", RenameStatus.FAILED,
+                        "文件不存在或不是普通文件"));
+                continue;
+            }
+            Path target = forcedNormalTarget(source, mode.extension());
+            if (pathKey(source).equals(pathKey(target))) {
+                result.add(new RenameItem(source, source, "普通 " + mode.displayName(),
+                        RenameStatus.UNCHANGED, "当前后缀已经符合所选格式"));
+            } else {
+                result.add(new RenameItem(source, target,
+                        "按用户选择恢复为 " + mode.displayName(), RenameStatus.READY, ""));
+            }
+        }
+        markConflicts(result);
+        return result;
+    }
+
+    private Path forcedNormalTarget(Path source, String targetExtension) {
+        String fileName = source.getFileName().toString();
+        Matcher knownSuffix = KNOWN_ARCHIVE_SUFFIX.matcher(fileName);
+        String baseName;
+        if (knownSuffix.find() && knownSuffix.start() > 0) {
+            baseName = fileName.substring(0, knownSuffix.start());
+        } else {
+            int lastDot = fileName.lastIndexOf('.');
+            baseName = lastDot > 0 ? fileName.substring(0, lastDot) : fileName;
+        }
+        return source.resolveSibling(baseName + "." + targetExtension.toLowerCase(Locale.ROOT));
+    }
+
+    private List<RenameItem> createPlan(Collection<Path> files,
+                                        RenameMode mode,
+                                        boolean forceSingleMultipartGroup) {
         Map<String, Path> uniqueFiles = new LinkedHashMap<>();
         for (Path file : files) {
             Path normalized = file.toAbsolutePath().normalize();
@@ -31,7 +92,9 @@ public final class FileRenameService {
 
         Map<Path, ArchiveNameDetector.Detection> detections = archiveNameDetector.detect(uniqueFiles.values());
         Map<Path, Path> multipartTargets = mode.multipart()
-                ? multipartRenamePlanner.createTargets(uniqueFiles.values(), mode)
+                ? forceSingleMultipartGroup
+                ? multipartRenamePlanner.createSingleGroupTargets(uniqueFiles.values(), mode)
+                : multipartRenamePlanner.createTargets(uniqueFiles.values(), mode)
                 : Map.of();
 
         List<RenameItem> result = new ArrayList<>();

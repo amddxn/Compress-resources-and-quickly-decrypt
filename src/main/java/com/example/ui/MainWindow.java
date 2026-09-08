@@ -5,6 +5,9 @@ import com.example.extract.ExtractionBatchResult;
 import com.example.extract.ExtractionPreferences;
 import com.example.extract.ExtractionResult;
 import com.example.extract.ExtractionSettings;
+import com.example.extract.NestedArchiveDecision;
+import com.example.extract.NestedArchiveDecisionProvider;
+import com.example.extract.NestedArchiveInspection;
 import com.example.extract.PasswordProvider;
 import com.example.model.RenameItem;
 import com.example.model.RenameStatus;
@@ -402,6 +405,7 @@ public final class MainWindow extends JFrame {
 
         ExtractionSettings finalExtractionSettings = extractionSettings;
         TaskPasswordManager passwordManager = shouldExtract ? new TaskPasswordManager() : null;
+        NestedDecisionManager nestedDecisionManager = shouldExtract ? new NestedDecisionManager() : null;
         setControlsEnabled(false);
         summaryLabel.setText("正在修改，请稍候……");
         new SwingWorker<ExtractionBatchResult, Void>() {
@@ -413,6 +417,7 @@ public final class MainWindow extends JFrame {
                 }
                 List<Path> archives = finalPathsForExtraction(items);
                 return extractionService.extract(archives, finalExtractionSettings, passwordManager,
+                        nestedDecisionManager,
                         message -> SwingUtilities.invokeLater(
                                 () -> summaryLabel.setText(message)));
             }
@@ -431,6 +436,9 @@ public final class MainWindow extends JFrame {
                 } finally {
                     if (passwordManager != null) {
                         passwordManager.close();
+                    }
+                    if (nestedDecisionManager != null) {
+                        nestedDecisionManager.close();
                     }
                 }
                 tableModel.fireTableDataChanged();
@@ -485,6 +493,17 @@ public final class MainWindow extends JFrame {
                             .append(extractionResult.consolidatedMultipartGroupCount())
                             .append(" 组，迁移 ")
                             .append(extractionResult.movedMultipartFileCount()).append(" 个文件");
+                }
+                if (extractionResult.recoveredDisguisedFileCount() > 0) {
+                    summary.append("\n已恢复嵌套伪装后缀 ")
+                            .append(extractionResult.recoveredDisguisedFileCount()).append(" 个文件");
+                }
+                if (extractionResult.userConfirmedMultipartMovedCount() > 0) {
+                    summary.append("，其中按用户选择集中迁移分卷 ")
+                            .append(extractionResult.userConfirmedMultipartMovedCount()).append(" 个");
+                }
+                if (extractionResult.stoppedByUser()) {
+                    summary.append("\n用户已结束后续嵌套判断");
                 }
                 if (extractionResult.depthLimitReached()) {
                     summary.append("\n已达到最大嵌套层数，剩余压缩包未继续解压");
@@ -687,6 +706,37 @@ public final class MainWindow extends JFrame {
                 Arrays.fill(sharedPassword, '\0');
                 sharedPassword = null;
             }
+        }
+    }
+
+    private final class NestedDecisionManager
+            implements NestedArchiveDecisionProvider, AutoCloseable {
+        private boolean closed;
+
+        @Override
+        public synchronized NestedArchiveDecision requestDecision(
+                NestedArchiveInspection inspection) {
+            if (closed) {
+                return NestedArchiveDecision.stopAll();
+            }
+            AtomicReference<NestedArchiveDecision> answer = new AtomicReference<>();
+            Runnable prompt = () -> answer.set(
+                    NestedArchiveReviewDialog.show(MainWindow.this, inspection));
+            try {
+                if (SwingUtilities.isEventDispatchThread()) {
+                    prompt.run();
+                } else {
+                    SwingUtilities.invokeAndWait(prompt);
+                }
+            } catch (Exception exception) {
+                return NestedArchiveDecision.stopAll();
+            }
+            return answer.get() == null ? NestedArchiveDecision.stopAll() : answer.get();
+        }
+
+        @Override
+        public synchronized void close() {
+            closed = true;
         }
     }
 

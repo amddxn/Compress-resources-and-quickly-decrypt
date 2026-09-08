@@ -65,6 +65,9 @@ final class ArchiveExtractionPlanner {
         Set<String> reservedOutputs = new HashSet<>();
         List<ExtractionTask> tasks = new ArrayList<>();
         List<String> warnings = new ArrayList<>();
+        List<Path> scannedFiles = new ArrayList<>();
+        Set<String> seenScannedFiles = new HashSet<>();
+        Set<String> recognizedArchiveFiles = new HashSet<>();
         int consolidatedGroups = 0;
         int movedVolumes = 0;
 
@@ -95,13 +98,24 @@ final class ArchiveExtractionPlanner {
                 }
             }
 
+            for (Path candidate : candidates) {
+                String key = pathKey(candidate);
+                if (seenScannedFiles.add(key)) {
+                    scannedFiles.add(candidate);
+                }
+                if (isRecognizedArchiveName(candidate.getFileName().toString())) {
+                    recognizedArchiveFiles.add(key);
+                }
+            }
+
             for (ArchiveEntry entry : detectEntries(candidates)) {
                 Path parent = entry.path().getParent();
                 Path output = uniqueOutputDirectory(parent, entry.baseName(), reservedOutputs);
                 tasks.add(new ExtractionTask(entry.path(), output, nestedDepth));
             }
         }
-        return new NestedArchivePlan(tasks, consolidatedGroups, movedVolumes, warnings);
+        return new NestedArchivePlan(tasks, consolidatedGroups, movedVolumes, warnings,
+                scannedFiles, recognizedArchiveFiles);
     }
 
     private List<Path> scanFiles(Path root) throws IOException {
@@ -367,6 +381,16 @@ final class ArchiveExtractionPlanner {
         return null;
     }
 
+    private boolean isRecognizedArchiveName(String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        return SEVEN_ZIP_VOLUME.matcher(name).matches()
+                || ZIP_VOLUME.matcher(name).matches()
+                || RAR_VOLUME.matcher(name).matches()
+                || lower.endsWith(".zip")
+                || lower.endsWith(".7z")
+                || lower.endsWith(".rar");
+    }
+
     private Path uniqueOutputDirectory(Path parent, String baseName, Set<String> reservedOutputs) {
         String safeBaseName = baseName.isBlank() ? "解压结果" : baseName;
         int occurrence = 1;
@@ -487,10 +511,14 @@ final class ArchiveExtractionPlanner {
     record NestedArchivePlan(List<ExtractionTask> tasks,
                              int consolidatedGroupCount,
                              int movedVolumeCount,
-                             List<String> warnings) {
+                             List<String> warnings,
+                             List<Path> scannedFiles,
+                             Set<String> recognizedArchiveFiles) {
         NestedArchivePlan {
             tasks = List.copyOf(tasks);
             warnings = List.copyOf(warnings);
+            scannedFiles = List.copyOf(scannedFiles);
+            recognizedArchiveFiles = Set.copyOf(recognizedArchiveFiles);
         }
     }
 

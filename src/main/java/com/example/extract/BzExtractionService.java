@@ -9,7 +9,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -25,6 +30,14 @@ public final class BzExtractionService {
                                          ExtractionSettings settings,
                                          PasswordProvider passwordProvider,
                                          Consumer<String> progress) throws IOException, InterruptedException {
+        return extract(archives, settings, passwordProvider, null, progress);
+    }
+
+    public ExtractionBatchResult extract(Collection<Path> archives,
+                                         ExtractionSettings settings,
+                                         PasswordProvider passwordProvider,
+                                         NestedArchiveDecisionProvider decisionProvider,
+                                         Consumer<String> progress) throws IOException, InterruptedException {
         validateSettings(settings);
         Files.createDirectories(settings.outputRoot());
         List<ExtractionTask> tasks = planner.createTasks(archives, settings.outputRoot());
@@ -39,7 +52,10 @@ public final class BzExtractionService {
             boolean depthLimitReached = false;
             int consolidatedMultipartGroupCount = 0;
             int movedMultipartFileCount = 0;
-            List<String> organizationWarnings = new ArrayList<>();
+            Set<String> organizationWarnings = new LinkedHashSet<>();
+            int recoveredDisguisedFileCount = 0;
+            int userConfirmedMultipartMovedCount = 0;
+            boolean stoppedByUser = false;
             List<ExtractionTask> currentLayer = tasks;
 
             while (!currentLayer.isEmpty()) {
@@ -56,21 +72,24 @@ public final class BzExtractionService {
                 }
 
                 int nextDepth = currentLayer.get(0).nestedDepth() + 1;
-                ArchiveExtractionPlanner.NestedArchivePlan nestedPlan = planner.createNestedPlan(
-                        successfulOutputDirectories, nextDepth);
-                consolidatedMultipartGroupCount += nestedPlan.consolidatedGroupCount();
-                movedMultipartFileCount += nestedPlan.movedVolumeCount();
-                organizationWarnings.addAll(nestedPlan.warnings());
-                if (nestedPlan.consolidatedGroupCount() > 0) {
-                    progress.accept("已整理跨文件夹分卷 " + nestedPlan.consolidatedGroupCount()
-                            + " 组，共迁移 " + nestedPlan.movedVolumeCount() + " 个文件");
-                }
-                List<ExtractionTask> nextLayer = nestedPlan.tasks();
-                if (nextLayer.isEmpty()) {
+                NestedPreparation preparation = prepareNestedLayer(successfulOutputDirectories,
+                        nextDepth, nextDepth <= settings.maxNestedDepth(),
+                        decisionProvider, progress);
+                consolidatedMultipartGroupCount += preparation.consolidatedGroupCount();
+                movedMultipartFileCount += preparation.movedVolumeCount();
+                recoveredDisguisedFileCount += preparation.recoveredFileCount();
+                userConfirmedMultipartMovedCount += preparation.userMovedFileCount();
+                organizationWarnings.addAll(preparation.warnings());
+                if (preparation.stoppedByUser()) {
+                    stoppedByUser = true;
                     break;
                 }
-                if (nextDepth > settings.maxNestedDepth()) {
+                List<ExtractionTask> nextLayer = preparation.tasks();
+                if (nextDepth > settings.maxNestedDepth() && !nextLayer.isEmpty()) {
                     depthLimitReached = true;
+                    break;
+                }
+                if (nextLayer.isEmpty()) {
                     break;
                 }
 
@@ -80,10 +99,122 @@ public final class BzExtractionService {
                 currentLayer = nextLayer;
             }
             return new ExtractionBatchResult(allResults, nestedArchiveCount, depthLimitReached,
-                    consolidatedMultipartGroupCount, movedMultipartFileCount, organizationWarnings);
+                    consolidatedMultipartGroupCount, movedMultipartFileCount,
+                    new ArrayList<>(organizationWarnings), recoveredDisguisedFileCount,
+                    userConfirmedMultipartMovedCount, stoppedByUser);
         } finally {
             executor.shutdownNow();
         }
+    }
+
+    private NestedPreparation prepareNestedLayer(List<Path> extractedRoots,
+                                                 int nestedDepth,
+                                                 boolean reviewEnabled,
+                                                 NestedArchiveDecisionProvider decisionProvider,
+                                                 Consumer<String> progress) {
+        Map<String, ExtractionTask> tasks = new LinkedHashMap<>();
+        Set<String> warnings = new LinkedHashSet<>();
+        int consolidatedGroups = 0;
+        int movedVolumes = 0;
+        int recoveredFiles = 0;
+        int userMovedFiles = 0;
+
+        for (Path root : extractedRoots) {
+            ArchiveExtractionPlanner.NestedArchivePlan plan =
+                    planner.createNestedPlan(List.of(root), nestedDepth);
+            consolidatedGroups += plan.consolidatedGroupCount();
+            movedVolumes += plan.movedVolumeCount();
+            warnings.addAll(plan.warnings());
+            reportConsolidation(plan, progress);
+
+            if (decisionProvider == null || !reviewEnabled) {
+                addTasks(tasks, plan.tasks());
+                continue;
+            }
+
+            boolean firstReview = true;
+            while ((firstReview && !plan.scannedFiles().isEmpty()) || hasUndecidedFiles(plan)) {
+                firstReview = false;
+                NestedArchiveInspection inspection = createInspection(root, nestedDepth, plan);
+                NestedArchiveDecision decision = decisionProvider.requestDecision(inspection);
+                if (decision == null || decision.action() == NestedArchiveDecision.Action.STOP_ALL) {
+                    return new NestedPreparation(new ArrayList<>(tasks.values()), consolidatedGroups,
+                            movedVolumes, recoveredFiles, userMovedFiles,
+                            new ArrayList<>(warnings), true);
+                }
+                if (decision.action() == NestedArchiveDecision.Action.FINISH_LAYER) {
+                    break;
+                }
+
+                NestedArchiveRecoveryService.RecoveryResult recovery =
+                        new NestedArchiveRecoveryService().recover(
+                                root, decision.selectedFiles(), decision.renameMode());
+                recoveredFiles += recovery.renamedCount();
+                userMovedFiles += recovery.movedCount();
+                warnings.addAll(recovery.warnings());
+                if (recovery.renamedCount() > 0) {
+                    progress.accept("第 " + nestedDepth + " 层已恢复伪装后缀 "
+                            + recovery.renamedCount() + " 个文件");
+                }
+
+                ArchiveExtractionPlanner.NestedArchivePlan refreshed =
+                        planner.createNestedPlan(List.of(root), nestedDepth);
+                consolidatedGroups += refreshed.consolidatedGroupCount();
+                movedVolumes += refreshed.movedVolumeCount();
+                warnings.addAll(refreshed.warnings());
+                reportConsolidation(refreshed, progress);
+                plan = refreshed;
+
+                if (recovery.renamedCount() == 0 && recovery.movedCount() == 0) {
+                    progress.accept("所选文件未能完成修改，请重新选择或结束本层判断");
+                }
+            }
+            addTasks(tasks, plan.tasks());
+        }
+        return new NestedPreparation(new ArrayList<>(tasks.values()), consolidatedGroups,
+                movedVolumes, recoveredFiles, userMovedFiles,
+                new ArrayList<>(warnings), false);
+    }
+
+    private NestedArchiveInspection createInspection(Path root,
+                                                     int nestedDepth,
+                                                     ArchiveExtractionPlanner.NestedArchivePlan plan) {
+        List<NestedArchiveInspection.FileEntry> files = new ArrayList<>();
+        for (Path path : plan.scannedFiles()) {
+            long size;
+            try {
+                size = Files.size(path);
+            } catch (IOException exception) {
+                size = -1;
+            }
+            files.add(new NestedArchiveInspection.FileEntry(path, size,
+                    plan.recognizedArchiveFiles().contains(pathKey(path))));
+        }
+        return new NestedArchiveInspection(root, nestedDepth, files);
+    }
+
+    private boolean hasUndecidedFiles(ArchiveExtractionPlanner.NestedArchivePlan plan) {
+        return plan.scannedFiles().stream()
+                .anyMatch(path -> !plan.recognizedArchiveFiles().contains(pathKey(path)));
+    }
+
+    private void addTasks(Map<String, ExtractionTask> destination,
+                          List<ExtractionTask> tasks) {
+        for (ExtractionTask task : tasks) {
+            destination.putIfAbsent(pathKey(task.archive()), task);
+        }
+    }
+
+    private void reportConsolidation(ArchiveExtractionPlanner.NestedArchivePlan plan,
+                                     Consumer<String> progress) {
+        if (plan.consolidatedGroupCount() > 0) {
+            progress.accept("已整理跨文件夹分卷 " + plan.consolidatedGroupCount()
+                    + " 组，共迁移 " + plan.movedVolumeCount() + " 个文件");
+        }
+    }
+
+    private String pathKey(Path path) {
+        return path.toAbsolutePath().normalize().toString().toLowerCase(Locale.ROOT);
     }
 
     private List<ExtractionResult> executeLayer(List<ExtractionTask> tasks,
@@ -139,6 +270,7 @@ public final class BzExtractionService {
                 clearPassword(password);
                 password = null;
                 if (suppliedPassword.isEmpty()) {
+                    deleteIfEmpty(task.outputDirectory());
                     return new ExtractionResult(task.archive(), task.outputDirectory(), false,
                             attempt.exitCode(), "用户取消了密码输入");
                 }
@@ -161,11 +293,27 @@ public final class BzExtractionService {
     }
 
     private ExtractionResult failedResult(ExtractionTask task, ProcessAttempt attempt) {
+        deleteIfEmpty(task.outputDirectory());
         String message = attempt.output().isBlank()
                 ? "bz.exe 返回错误代码 " + attempt.exitCode()
                 : attempt.output();
         return new ExtractionResult(task.archive(), task.outputDirectory(), false,
                 attempt.exitCode(), message);
+    }
+
+    private void deleteIfEmpty(Path directory) {
+        try {
+            if (!Files.isDirectory(directory)) {
+                return;
+            }
+            try (var children = Files.list(directory)) {
+                if (children.findAny().isEmpty()) {
+                    Files.deleteIfExists(directory);
+                }
+            }
+        } catch (IOException ignored) {
+            // 解压失败信息更重要；空目录无法清理时保留，不覆盖原始错误。
+        }
     }
 
     boolean isPasswordError(String output) {
@@ -250,5 +398,14 @@ public final class BzExtractionService {
     }
 
     private record ProcessAttempt(int exitCode, String output) {
+    }
+
+    private record NestedPreparation(List<ExtractionTask> tasks,
+                                     int consolidatedGroupCount,
+                                     int movedVolumeCount,
+                                     int recoveredFileCount,
+                                     int userMovedFileCount,
+                                     List<String> warnings,
+                                     boolean stoppedByUser) {
     }
 }

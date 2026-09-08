@@ -1,8 +1,10 @@
 package com.example.service;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -31,6 +33,16 @@ final class MultipartRenamePlanner {
             Pattern.compile("^z.*?(\\d{2})$", Pattern.CASE_INSENSITIVE);
 
     Map<Path, Path> createTargets(Collection<Path> files, RenameMode mode) {
+        return createTargets(files, mode, false);
+    }
+
+    Map<Path, Path> createSingleGroupTargets(Collection<Path> files, RenameMode mode) {
+        return createTargets(files, mode, true);
+    }
+
+    private Map<Path, Path> createTargets(Collection<Path> files,
+                                          RenameMode mode,
+                                          boolean forceSingleGroup) {
         if (!mode.multipart()) {
             throw new IllegalArgumentException("仅分卷模式可以生成分卷目标名称");
         }
@@ -45,6 +57,10 @@ final class MultipartRenamePlanner {
         inferSharedBases(entries);
         applyKnownBaseAnchors(entries);
         applyFallbackBases(entries);
+        if (forceSingleGroup) {
+            forceSharedBase(entries);
+            sortSingleGroupEntries(entries);
+        }
         assignMissingNumbers(entries);
 
         Map<Path, Path> targets = new LinkedHashMap<>();
@@ -55,6 +71,45 @@ final class MultipartRenamePlanner {
             targets.put(entry.path, target);
         }
         return targets;
+    }
+
+    private void forceSharedBase(List<Entry> entries) {
+        if (entries.isEmpty()) {
+            return;
+        }
+
+        String commonBase = entries.get(0).fileName;
+        for (int index = 1; index < entries.size() && commonBase != null; index++) {
+            commonBase = commonDotPrefix(commonBase, entries.get(index).fileName);
+        }
+        commonBase = sanitizeBase(commonBase);
+
+        if (commonBase == null || commonBase.isBlank()) {
+            commonBase = entries.stream()
+                    .map(entry -> sanitizeBase(entry.baseName))
+                    .filter(base -> base != null && !base.isBlank())
+                    .min((first, second) -> Integer.compare(first.length(), second.length()))
+                    .orElse("嵌套分卷");
+        }
+        for (Entry entry : entries) {
+            entry.baseName = commonBase;
+        }
+    }
+
+    private void sortSingleGroupEntries(List<Entry> entries) {
+        entries.sort(Comparator
+                .comparing((Entry entry) -> entry.number == null ? 1 : 0)
+                .thenComparing(entry -> entry.number == null ? Integer.MAX_VALUE : entry.number)
+                .thenComparing(Comparator.comparingLong(this::fileSize).reversed())
+                .thenComparing(entry -> entry.path.toString(), String.CASE_INSENSITIVE_ORDER));
+    }
+
+    private long fileSize(Entry entry) {
+        try {
+            return Files.size(entry.path);
+        } catch (java.io.IOException exception) {
+            return -1;
+        }
     }
 
     private Entry parseEntry(Path path, RenameMode mode) {
@@ -68,10 +123,14 @@ final class MultipartRenamePlanner {
         if (mode == RenameMode.ZIP_MULTIPART && extension.equals("zip")) {
             return new Entry(path, name, sanitizeBase(baseNameOf(name)), 1, true);
         }
+        if (mode == RenameMode.ZIP_MULTIPART
+                && looksLikeDisturbedZipEntry(lastSegment(name))) {
+            return new Entry(path, name, sanitizeBase(baseNameOf(name)), 1, false);
+        }
         if (extension.equals("zip") || extension.equals("7z") || extension.equals("rar")) {
             return new Entry(path, name, sanitizeBase(baseNameOf(name)), null, false);
         }
-        return new Entry(path, name, null, extractDisturbedNumber(name), false);
+        return new Entry(path, name, null, extractDisturbedNumber(name, mode), false);
     }
 
     private ParsedVolume parseCanonicalVolume(String name) {
@@ -103,7 +162,7 @@ final class MultipartRenamePlanner {
         return number == null ? null : new ParsedVolume(baseName, number + offset);
     }
 
-    private Integer extractDisturbedNumber(String name) {
+    private Integer extractDisturbedNumber(String name, RenameMode mode) {
         String suffix = lastSegment(name);
 
         Matcher part = PART_NUMBER_ANYWHERE.matcher(name);
@@ -115,6 +174,15 @@ final class MultipartRenamePlanner {
         if (noisyZ.matches()) {
             Integer suffixNumber = safeParseDigits(noisyZ.group(1));
             return suffixNumber == null ? null : suffixNumber + 1;
+        }
+
+        if (mode == RenameMode.ZIP_MULTIPART
+                && suffix.toLowerCase(Locale.ROOT).startsWith("z")) {
+            String separatedDigits = suffix.replaceAll("\\D", "");
+            if (separatedDigits.length() == 1 || separatedDigits.length() == 2) {
+                Integer suffixNumber = safeParseDigits(separatedDigits);
+                return suffixNumber == null ? null : suffixNumber + 1;
+            }
         }
 
         if (suffix.chars().allMatch(Character::isDigit) && suffix.length() >= 3) {
@@ -131,6 +199,14 @@ final class MultipartRenamePlanner {
             return safeParseDigits(digitsOnly);
         }
         return null;
+    }
+
+    private boolean looksLikeDisturbedZipEntry(String suffix) {
+        String lettersOnly = suffix.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+        int z = lettersOnly.indexOf('z');
+        int i = z < 0 ? -1 : lettersOnly.indexOf('i', z + 1);
+        int p = i < 0 ? -1 : lettersOnly.indexOf('p', i + 1);
+        return z == 0 && i > z && p > i;
     }
 
     private void applyKnownBaseAnchors(List<Entry> entries) {
