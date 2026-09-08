@@ -3,6 +3,7 @@ package app.archiverecovery.ui;
 import app.archiverecovery.extract.BzExtractionService;
 import app.archiverecovery.extract.ExtractionBatchResult;
 import app.archiverecovery.extract.ExtractionPreferences;
+import app.archiverecovery.extract.ExtractionProgress;
 import app.archiverecovery.extract.ExtractionResult;
 import app.archiverecovery.extract.ExtractionSettings;
 import app.archiverecovery.extract.NestedArchiveDecision;
@@ -60,6 +61,7 @@ public final class MainWindow extends JFrame {
     private final ExtractionPreferences extractionPreferences = new ExtractionPreferences();
     private final RenameTableModel tableModel = new RenameTableModel();
     private final List<Path> selectedFiles = new ArrayList<>();
+    private final OperationProgressPanel operationProgressPanel = new OperationProgressPanel();
 
     private final JLabel summaryLabel = new JLabel("尚未选择文件");
     private final JLabel readyValue = createMetricValue("0", Theme.PRIMARY);
@@ -87,8 +89,8 @@ public final class MainWindow extends JFrame {
 
     private void configureWindow() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setMinimumSize(new Dimension(920, 640));
-        setSize(1120, 720);
+        setMinimumSize(new Dimension(960, 720));
+        setSize(1160, 850);
         setLocationRelativeTo(null);
     }
 
@@ -107,7 +109,12 @@ public final class MainWindow extends JFrame {
         setupArea.setOpaque(false);
         setupArea.add(createDropCard());
         setupArea.add(createOptionsCard());
-        content.add(setupArea, BorderLayout.NORTH);
+
+        JPanel workflowArea = new JPanel(new BorderLayout(0, 14));
+        workflowArea.setOpaque(false);
+        workflowArea.add(setupArea, BorderLayout.NORTH);
+        workflowArea.add(operationProgressPanel, BorderLayout.SOUTH);
+        content.add(workflowArea, BorderLayout.NORTH);
         content.add(createTableCard(), BorderLayout.CENTER);
         content.add(createFooter(), BorderLayout.SOUTH);
     }
@@ -372,6 +379,7 @@ public final class MainWindow extends JFrame {
         unchangedValue.setText(String.valueOf(unchanged));
         conflictValue.setText(String.valueOf(conflict));
         summaryLabel.setText(plan.isEmpty() ? "尚未选择文件" : "共选择 " + plan.size() + " 个文件");
+        operationProgressPanel.showReady(plan.size());
         executeButton.setEnabled(ready > 0);
         extractButton.setEnabled(!plan.isEmpty());
     }
@@ -408,10 +416,23 @@ public final class MainWindow extends JFrame {
         NestedDecisionManager nestedDecisionManager = shouldExtract ? new NestedDecisionManager() : null;
         setControlsEnabled(false);
         summaryLabel.setText("正在修改，请稍候……");
+        operationProgressPanel.begin(shouldExtract, items.size());
         new SwingWorker<ExtractionBatchResult, Void>() {
             @Override
             protected ExtractionBatchResult doInBackground() throws Exception {
-                renameService.execute(items);
+                int renameTotal = Math.toIntExact(readyCount);
+                java.util.concurrent.atomic.AtomicInteger renamed =
+                        new java.util.concurrent.atomic.AtomicInteger();
+                SwingUtilities.invokeLater(() ->
+                        operationProgressPanel.updateRename(0, renameTotal, ""));
+                renameService.execute(items, item -> {
+                    int completed = renamed.incrementAndGet();
+                    SwingUtilities.invokeLater(() -> {
+                        operationProgressPanel.updateRename(completed, renameTotal,
+                                item.source().getFileName().toString());
+                        tableModel.fireTableDataChanged();
+                    });
+                });
                 if (!shouldExtract) {
                     return null;
                 }
@@ -419,7 +440,9 @@ public final class MainWindow extends JFrame {
                 return extractionService.extract(archives, finalExtractionSettings, passwordManager,
                         nestedDecisionManager,
                         message -> SwingUtilities.invokeLater(
-                                () -> summaryLabel.setText(message)));
+                                () -> summaryLabel.setText(message)),
+                        progress -> SwingUtilities.invokeLater(
+                                () -> updateExtractionProgress(progress)));
             }
 
             @Override
@@ -526,9 +549,26 @@ public final class MainWindow extends JFrame {
                 || extractionResult != null && (extractionResult.failureCount() > 0
                 || extractionResult.depthLimitReached()
                 || !extractionResult.organizationWarnings().isEmpty());
+        boolean hasWarnings = conflict > 0 || failed > 0 || hasExtractionFailure;
+        if (operationError != null) {
+            operationProgressPanel.fail("处理未完成：" + operationError);
+        } else {
+            String progressDetail = extractionRequested && extractionResult != null
+                    ? "处理完成：修改成功 " + success + "，解压成功 "
+                    + extractionResult.successCount()
+                    : "处理完成：成功修改 " + success + " 个文件";
+            operationProgressPanel.finish(hasWarnings, progressDetail);
+        }
         JOptionPane.showMessageDialog(this, summary.toString(), "处理完成",
                 failed > 0 || hasExtractionFailure
                         ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void updateExtractionProgress(ExtractionProgress progress) {
+        operationProgressPanel.updateExtraction(progress);
+        if (!progress.message().isBlank()) {
+            summaryLabel.setText(progress.message());
+        }
     }
 
     private void appendExtractionFailures(StringBuilder summary, ExtractionBatchResult result) {

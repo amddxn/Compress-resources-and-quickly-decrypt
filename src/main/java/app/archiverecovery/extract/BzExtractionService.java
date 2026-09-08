@@ -1,6 +1,5 @@
 package app.archiverecovery.extract;
 
-import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -14,16 +13,25 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class BzExtractionService {
     private static final int MAX_MESSAGE_LENGTH = 900;
+    private static final Pattern PROGRESS_PERCENT = Pattern.compile(
+            "(?:^|[\\s\\[\\(:])([0-9]{1,3})\\s*%(?=$|[\\s\\]\\)])");
+    private static final Pattern LIVE_PROGRESS_PERCENT = Pattern.compile(
+            "(?:^|[\\s\\[\\(:])([0-9]{1,3})\\s*%(?=[\\s\\]\\)])");
     private final ArchiveExtractionPlanner planner = new ArchiveExtractionPlanner();
 
     public ExtractionBatchResult extract(Collection<Path> archives,
@@ -38,10 +46,25 @@ public final class BzExtractionService {
                                          PasswordProvider passwordProvider,
                                          NestedArchiveDecisionProvider decisionProvider,
                                          Consumer<String> progress) throws IOException, InterruptedException {
+        return extract(archives, settings, passwordProvider, decisionProvider, progress,
+                ignored -> {
+                });
+    }
+
+    public ExtractionBatchResult extract(Collection<Path> archives,
+                                         ExtractionSettings settings,
+                                         PasswordProvider passwordProvider,
+                                         NestedArchiveDecisionProvider decisionProvider,
+                                         Consumer<String> progress,
+                                         Consumer<ExtractionProgress> detailedProgress)
+            throws IOException, InterruptedException {
         validateSettings(settings);
         Files.createDirectories(settings.outputRoot());
         List<ExtractionTask> tasks = planner.createTasks(archives, settings.outputRoot());
         if (tasks.isEmpty()) {
+            detailedProgress.accept(new ExtractionProgress(
+                    ExtractionProgress.Phase.PREPARING_LAYER,
+                    0, 0, 0, null, "没有发现可解压的入口文件"));
             return new ExtractionBatchResult(List.of());
         }
 
@@ -59,8 +82,15 @@ public final class BzExtractionService {
             List<ExtractionTask> currentLayer = tasks;
 
             while (!currentLayer.isEmpty()) {
+                int currentDepth = currentLayer.get(0).nestedDepth();
+                String layerName = currentDepth == 0 ? "首层" : "嵌套第 " + currentDepth + " 层";
+                detailedProgress.accept(new ExtractionProgress(
+                        ExtractionProgress.Phase.PREPARING_LAYER,
+                        currentDepth, 0, currentLayer.size(), null,
+                        "准备解压" + layerName + "的 " + currentLayer.size() + " 个压缩包"));
                 List<ExtractionResult> layerResults = executeLayer(
-                        currentLayer, settings, passwordProvider, progress, executor);
+                        currentLayer, settings, passwordProvider, progress,
+                        detailedProgress, executor);
                 allResults.addAll(layerResults);
 
                 List<Path> successfulOutputDirectories = layerResults.stream()
@@ -72,9 +102,13 @@ public final class BzExtractionService {
                 }
 
                 int nextDepth = currentLayer.get(0).nestedDepth() + 1;
+                detailedProgress.accept(new ExtractionProgress(
+                        ExtractionProgress.Phase.SCANNING_NESTED,
+                        nextDepth, currentLayer.size(), currentLayer.size(), null,
+                        "本层解压完成，正在检查第 " + nextDepth + " 层嵌套文件"));
                 NestedPreparation preparation = prepareNestedLayer(successfulOutputDirectories,
                         nextDepth, nextDepth <= settings.maxNestedDepth(),
-                        decisionProvider, progress);
+                        decisionProvider, progress, detailedProgress);
                 consolidatedMultipartGroupCount += preparation.consolidatedGroupCount();
                 movedMultipartFileCount += preparation.movedVolumeCount();
                 recoveredDisguisedFileCount += preparation.recoveredFileCount();
@@ -111,7 +145,8 @@ public final class BzExtractionService {
                                                  int nestedDepth,
                                                  boolean reviewEnabled,
                                                  NestedArchiveDecisionProvider decisionProvider,
-                                                 Consumer<String> progress) {
+                                                 Consumer<String> progress,
+                                                 Consumer<ExtractionProgress> detailedProgress) {
         Map<String, ExtractionTask> tasks = new LinkedHashMap<>();
         Set<String> warnings = new LinkedHashSet<>();
         int consolidatedGroups = 0;
@@ -136,6 +171,10 @@ public final class BzExtractionService {
             while ((firstReview && !plan.scannedFiles().isEmpty()) || hasUndecidedFiles(plan)) {
                 firstReview = false;
                 NestedArchiveInspection inspection = createInspection(root, nestedDepth, plan);
+                detailedProgress.accept(new ExtractionProgress(
+                        ExtractionProgress.Phase.WAITING_FOR_USER,
+                        nestedDepth, 0, inspection.files().size(), null,
+                        "等待确认第 " + nestedDepth + " 层发现的文件"));
                 NestedArchiveDecision decision = decisionProvider.requestDecision(inspection);
                 if (decision == null || decision.action() == NestedArchiveDecision.Action.STOP_ALL) {
                     return new NestedPreparation(new ArrayList<>(tasks.values()), consolidatedGroups,
@@ -221,11 +260,36 @@ public final class BzExtractionService {
                                                 ExtractionSettings settings,
                                                 PasswordProvider passwordProvider,
                                                 Consumer<String> progress,
+                                                Consumer<ExtractionProgress> detailedProgress,
                                                 ExecutorService executor) throws InterruptedException {
         List<Future<ExtractionResult>> futures = new ArrayList<>();
+        AtomicInteger completed = new AtomicInteger();
         for (ExtractionTask task : tasks) {
-            Callable<ExtractionResult> work = () -> extractOne(
-                    task, settings, passwordProvider, progress);
+            Callable<ExtractionResult> work = () -> {
+                detailedProgress.accept(new ExtractionProgress(
+                        ExtractionProgress.Phase.EXTRACTING,
+                        task.nestedDepth(), completed.get(), tasks.size(), task.archive(),
+                        "正在解压：" + task.archive().getFileName()));
+                try {
+                    ExtractionResult result = extractOne(
+                            task, settings, passwordProvider, progress, detailedProgress,
+                            completed, tasks.size());
+                    int finished = completed.incrementAndGet();
+                    detailedProgress.accept(new ExtractionProgress(
+                            ExtractionProgress.Phase.EXTRACTING,
+                            task.nestedDepth(), finished, tasks.size(), task.archive(),
+                            "已完成：" + task.archive().getFileName(),
+                            result.success() ? 100 : -1));
+                    return result;
+                } catch (Exception exception) {
+                    int finished = completed.incrementAndGet();
+                    detailedProgress.accept(new ExtractionProgress(
+                            ExtractionProgress.Phase.EXTRACTING,
+                            task.nestedDepth(), finished, tasks.size(), task.archive(),
+                            "解压异常：" + task.archive().getFileName()));
+                    throw exception;
+                }
+            };
             futures.add(executor.submit(work));
         }
 
@@ -246,7 +310,10 @@ public final class BzExtractionService {
     private ExtractionResult extractOne(ExtractionTask task,
                                         ExtractionSettings settings,
                                         PasswordProvider passwordProvider,
-                                        Consumer<String> progress) throws IOException, InterruptedException {
+                                        Consumer<String> progress,
+                                        Consumer<ExtractionProgress> detailedProgress,
+                                        AtomicInteger completed,
+                                        int total) throws IOException, InterruptedException {
         Files.createDirectories(task.outputDirectory());
         String layerText = task.nestedDepth() == 0
                 ? ""
@@ -256,7 +323,13 @@ public final class BzExtractionService {
         char[] password = null;
         try {
             while (true) {
-                ProcessAttempt attempt = runProcess(settings, task, password);
+                ProcessAttempt attempt = runProcess(settings, task, password,
+                        percent -> detailedProgress.accept(new ExtractionProgress(
+                                ExtractionProgress.Phase.EXTRACTING,
+                                task.nestedDepth(), completed.get(), total, task.archive(),
+                                "正在解压（" + percent + "%）："
+                                        + task.archive().getFileName(),
+                                percent)));
                 if (attempt.exitCode() == 0) {
                     return new ExtractionResult(task.archive(), task.outputDirectory(), true, 0, "解压成功");
                 }
@@ -265,6 +338,10 @@ public final class BzExtractionService {
                 }
 
                 progress.accept("等待输入密码：" + task.archive().getFileName());
+                detailedProgress.accept(new ExtractionProgress(
+                        ExtractionProgress.Phase.WAITING_FOR_USER,
+                        task.nestedDepth(), completed.get(), total, task.archive(),
+                        "等待输入密码：" + task.archive().getFileName()));
                 var suppliedPassword = passwordProvider.requestPassword(
                         task.archive(), password, attempt.output());
                 clearPassword(password);
@@ -283,11 +360,13 @@ public final class BzExtractionService {
 
     private ProcessAttempt runProcess(ExtractionSettings settings,
                                       ExtractionTask task,
-                                      char[] password) throws IOException, InterruptedException {
+                                      char[] password,
+                                      IntConsumer percentProgress)
+            throws IOException, InterruptedException {
         Process process = new ProcessBuilder(createCommand(settings, task, password))
                 .redirectErrorStream(true)
                 .start();
-        String output = readOutputTail(process.getInputStream());
+        String output = readOutputTail(process.getInputStream(), percentProgress);
         int exitCode = process.waitFor();
         return new ProcessAttempt(exitCode, sanitizeOutput(output, password));
     }
@@ -363,19 +442,57 @@ public final class BzExtractionService {
         }
     }
 
-    private String readOutputTail(InputStream inputStream) throws IOException {
+    String readOutputTail(InputStream inputStream,
+                          IntConsumer percentProgress) throws IOException {
         StringBuilder tail = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                tail.append(line).append(System.lineSeparator());
+        StringBuilder progressWindow = new StringBuilder();
+        int lastPercent = -1;
+        try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
+            char[] buffer = new char[512];
+            int length;
+            while ((length = reader.read(buffer)) >= 0) {
+                String chunk = new String(buffer, 0, length);
+                tail.append(chunk);
+                progressWindow.append(chunk);
+                Matcher liveMatcher = LIVE_PROGRESS_PERCENT.matcher(progressWindow);
+                while (liveMatcher.find()) {
+                    int candidate = Integer.parseInt(liveMatcher.group(1));
+                    if (candidate <= 100 && candidate != lastPercent) {
+                        lastPercent = candidate;
+                        percentProgress.accept(lastPercent);
+                    }
+                }
+                if (progressWindow.length() > 256) {
+                    progressWindow.delete(0, progressWindow.length() - 256);
+                }
                 if (tail.length() > MAX_MESSAGE_LENGTH * 2) {
                     tail.delete(0, tail.length() - MAX_MESSAGE_LENGTH);
                 }
             }
         }
+        OptionalInt finalPercent = parseProgressPercent(progressWindow.toString());
+        if (finalPercent.isPresent() && finalPercent.getAsInt() != lastPercent) {
+            percentProgress.accept(finalPercent.getAsInt());
+        }
         return tail.toString();
+    }
+
+    OptionalInt parseProgressPercent(String line) {
+        if (line == null || line.isBlank()) {
+            return OptionalInt.empty();
+        }
+        return findLastProgressPercent(PROGRESS_PERCENT.matcher(line));
+    }
+
+    private OptionalInt findLastProgressPercent(Matcher matcher) {
+        int percent = -1;
+        while (matcher.find()) {
+            int candidate = Integer.parseInt(matcher.group(1));
+            if (candidate <= 100) {
+                percent = candidate;
+            }
+        }
+        return percent < 0 ? OptionalInt.empty() : OptionalInt.of(percent);
     }
 
     private String sanitizeOutput(String output, char[] password) {

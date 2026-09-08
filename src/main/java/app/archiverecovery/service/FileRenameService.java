@@ -13,6 +13,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -147,12 +149,19 @@ public final class FileRenameService {
     }
 
     public void execute(List<RenameItem> items) {
+        execute(items, ignored -> {
+        });
+    }
+
+    public void execute(List<RenameItem> items, Consumer<RenameItem> progress) {
+        Objects.requireNonNull(progress, "progress");
         for (RenameItem item : items) {
             if (item.status() != RenameStatus.READY) {
                 continue;
             }
             if (Files.exists(item.target())) {
                 item.updateStatus(RenameStatus.CONFLICT, "目标文件已存在，未覆盖");
+                progress.accept(item);
                 continue;
             }
             try {
@@ -161,6 +170,7 @@ public final class FileRenameService {
             } catch (IOException | SecurityException exception) {
                 item.updateStatus(RenameStatus.FAILED, friendlyMessage(exception));
             }
+            progress.accept(item);
         }
     }
 

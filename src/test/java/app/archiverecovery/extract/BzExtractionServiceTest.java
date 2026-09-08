@@ -1,8 +1,11 @@
 package app.archiverecovery.extract;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -110,6 +113,27 @@ public final class BzExtractionServiceTest {
                     directory.resolve("bz.exe"), outputRoot, 3, 12);
             assertEquals(12, settings.maxNestedDepth(), "最大嵌套层数设置必须保留");
             ExtractionTask task = new ExtractionTask(zip, outputRoot.resolve("album"));
+            ExtractionProgress halfway = new ExtractionProgress(
+                    ExtractionProgress.Phase.EXTRACTING, 0, 2, 4, zip, "正在解压");
+            assertEquals(50, halfway.percent(), "结构化解压进度必须计算正确百分比");
+            ExtractionProgress exactProgress = new ExtractionProgress(
+                    ExtractionProgress.Phase.EXTRACTING, 0, 0, 1, zip,
+                    "正在解压", 37);
+            assertTrue(exactProgress.hasExactPercentage(), "bz.exe 百分比必须标记为真实进度");
+            assertEquals(37, exactProgress.percent(), "真实解压百分比必须优先显示");
+            assertEquals(37, service.parseProgressPercent("Extracting  37%  demo.bin").orElse(-1),
+                    "必须解析 bz.exe 的行进度");
+            assertEquals(100, service.parseProgressPercent("[100%] done").orElse(-1),
+                    "必须解析完成进度");
+            assertTrue(service.parseProgressPercent("report100%.txt").isEmpty(),
+                    "文件名中的百分号不能误报为解压进度");
+            List<Integer> streamedProgress = new ArrayList<>();
+            service.readOutputTail(new ByteArrayInputStream(
+                            "Extracting 1%\rExtracting 37%\rExtracting 100%\r"
+                                    .getBytes(StandardCharsets.UTF_8)),
+                    streamedProgress::add);
+            assertEquals(List.of(1, 37, 100), streamedProgress,
+                    "同一输出块中的实时百分比必须全部上报");
             List<String> command = service.createCommand(settings, task, "秘密".toCharArray());
             assertTrue(command.contains("x"), "命令必须使用解压操作");
             assertTrue(command.contains("-consolemode:utf8"), "控制台输出必须使用 UTF-8");

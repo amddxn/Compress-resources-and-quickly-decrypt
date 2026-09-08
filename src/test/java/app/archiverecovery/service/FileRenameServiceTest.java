@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class FileRenameServiceTest {
     private FileRenameServiceTest() {
@@ -34,7 +35,9 @@ public final class FileRenameServiceTest {
             assertStatus(plan, "volume.001", RenameStatus.READY);
             assertStatus(plan, "volume.003", RenameStatus.READY);
 
-            service.execute(plan);
+            AtomicInteger progressEvents = new AtomicInteger();
+            service.execute(plan, ignored -> progressEvents.incrementAndGet());
+            assertTrue(progressEvents.get() == 3, "每个实际执行的改名任务都必须报告进度");
 
             Path renamed = testDirectory.resolve("demo.zip");
             assertTrue(Files.exists(renamed), ".71z 文件应该被改名为 .zip");
