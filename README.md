@@ -1,6 +1,6 @@
-# 压缩文件后缀批量修改工具
+# Archive Recovery Assistant
 
-一个使用 Java 17 和 Swing 编写的本地文件重命名工具。它只修改文件名，不读取或改变文件内容，也不执行压缩或解压。
+“压缩文件恢复与解压助手”是一款使用 Java 17 和 Swing 编写的 Windows 桌面工具，用于恢复 ZIP、7Z、RAR 及其分卷压缩包的受干扰后缀，并可在后台调用 Bandizip 自动完成多层嵌套解压。
 
 ## 修改规则
 
@@ -50,23 +50,23 @@ Bandizip 官网：<https://www.bandisoft.com/bandizip/>。常见默认路径为 
 
 ## 运行
 
-Windows 下可以直接双击 `run.bat`，脚本只负责编译并启动界面。
+Windows 下可以直接双击 `ArchiveRecoveryAssistant.bat`，脚本只负责编译并启动界面。
 
 也可以直接运行已经生成的 Windows 安装程序：
 
 ```text
-release/ExtensionRenamer-2.5.3.exe
+release/ArchiveRecoveryAssistant-3.0.0.exe
 ```
 
-安装包内置精简 Java 运行时，目标电脑不需要单独安装 Java。`dist/2.5.3/ExtensionRenamer/ExtensionRenamer.exe` 是无需安装的便携版本，但必须和同目录下的 `app`、`runtime` 文件夹一起使用。
+安装包内置精简 Java 运行时，目标电脑不需要单独安装 Java。`dist/3.0.0/ArchiveRecoveryAssistant/ArchiveRecoveryAssistant.exe` 是无需安装的便携版本，但必须和同目录下的 `app`、`runtime` 文件夹一起使用。
 
-在 IntelliJ IDEA 中打开项目，确认 Project SDK 为 Java 17，然后运行 `com.example.Main`。
+在 IntelliJ IDEA 中打开项目，确认 Project SDK 为 Java 17，然后运行 `app.archiverecovery.Main`。
 
 也可以在项目根目录执行：
 
 ```powershell
 javac -encoding UTF-8 --release 17 -d target/classes (Get-ChildItem src/main/java -Filter *.java -Recurse).FullName
-java -cp target/classes com.example.Main
+java -cp target/classes app.archiverecovery.Main
 ```
 
 程序启动后只会显示界面，不会自动修改文件。选择文件并点击“开始修改”，再次确认后才会执行重命名。
