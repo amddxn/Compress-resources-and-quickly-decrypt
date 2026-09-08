@@ -6,7 +6,7 @@
 
     <groupId>app.archiverecovery</groupId>
     <artifactId>archive-recovery-assistant</artifactId>
-    <version>3.0.0</version>
+    <version>3.1.0</version>
     <name>Archive Recovery Assistant</name>
     <description>Java 17 desktop utility for archive suffix recovery and automated extraction.</description>
 

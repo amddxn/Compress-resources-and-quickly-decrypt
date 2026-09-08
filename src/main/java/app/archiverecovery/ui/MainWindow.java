@@ -27,7 +27,6 @@ import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
-import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.TransferHandler;
@@ -124,30 +123,15 @@ public final class MainWindow extends JFrame {
         header.setBackground(new Color(35, 45, 78));
         header.setBorder(BorderFactory.createEmptyBorder(20, 26, 20, 26));
 
-        JPanel text = new JPanel(new GridLayout(2, 1, 0, 3));
-        text.setOpaque(false);
         JLabel title = new JLabel("压缩文件恢复与解压助手");
         title.setForeground(Color.WHITE);
         title.setFont(Theme.TITLE_FONT);
-        JLabel subtitle = new JLabel("先修复文件名，再按需调用 Bandizip 在后台解压");
-        subtitle.setForeground(new Color(190, 199, 224));
-        subtitle.setFont(Theme.SMALL_FONT);
-        text.add(title);
-        text.add(subtitle);
-        header.add(text, BorderLayout.WEST);
+        header.add(title, BorderLayout.WEST);
 
-        JLabel badge = new JLabel("JAVA 17", SwingConstants.CENTER);
-        badge.setFont(Theme.SMALL_FONT.deriveFont(Font.BOLD));
-        badge.setForeground(new Color(222, 228, 255));
-        badge.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(91, 109, 174)),
-                BorderFactory.createEmptyBorder(6, 12, 6, 12)
-        ));
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         actions.setOpaque(false);
         extractionSettingsButton.setPreferredSize(new Dimension(104, 36));
         actions.add(extractionSettingsButton);
-        actions.add(badge);
         header.add(actions, BorderLayout.EAST);
         return header;
     }
