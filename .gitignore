@@ -4,11 +4,6 @@ dist/
 release/
 *.class
 
-.idea/workspace.xml
-.idea/shelf/
-.idea/httpRequests/
-.idea/dataSources/
-.idea/dataSources.local.xml
-.idea/mavenHomeManager.xml
+.idea/
 
 *.iml
