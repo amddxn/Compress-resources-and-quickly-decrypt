@@ -3,14 +3,12 @@ package app.archiverecovery.extract;
 import java.nio.file.Path;
 import java.util.Objects;
 
-public record ExtractionSettings(Path bzExecutable, Path outputRoot,
-                                 int concurrency, int maxNestedDepth) {
-    public ExtractionSettings(Path bzExecutable, Path outputRoot, int concurrency) {
-        this(bzExecutable, outputRoot, concurrency, 10);
+public record ExtractionSettings(Path outputRoot, int concurrency, int maxNestedDepth) {
+    public ExtractionSettings(Path outputRoot, int concurrency) {
+        this(outputRoot, concurrency, 10);
     }
 
     public ExtractionSettings {
-        bzExecutable = Objects.requireNonNull(bzExecutable).toAbsolutePath().normalize();
         outputRoot = Objects.requireNonNull(outputRoot).toAbsolutePath().normalize();
         if (concurrency < 1 || concurrency > 8) {
             throw new IllegalArgumentException("并发数量必须在 1 到 8 之间");

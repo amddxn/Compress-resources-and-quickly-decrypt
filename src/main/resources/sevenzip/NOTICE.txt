@@ -1,0 +1,22 @@
+7-Zip 26.03 Third-Party Notice
+================================
+
+Archive Recovery Assistant includes unmodified copies of 7z.exe and 7z.dll
+from the official 7-Zip 26.03 Windows x64 distribution.
+
+7-Zip is Copyright (C) 1999-2026 Igor Pavlov.
+Most 7-Zip code is licensed under the GNU Lesser General Public License
+(LGPL). Some code in 7z.dll is also covered by BSD licenses and the unRAR
+license restriction. The complete license information distributed with this
+application is in LICENSE.txt.
+
+Official website and source code:
+https://www.7-zip.org/
+https://github.com/ip7z/7zip
+
+Bundled file checksums (SHA-256):
+7z.exe  6EE3C0ED0B27663C1B948AE85A7C0BB073AED1498983182F3F0DF1F6A8C30B2F
+7z.dll  65E4C1F855F9EF6E8F0F5DF8E3F27D9EB5F07311408639DA0A1CA0B8F4871B0D
+
+Archive Recovery Assistant is an independent project and is not affiliated
+with or endorsed by Igor Pavlov or the 7-Zip project.

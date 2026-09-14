@@ -1,0 +1,4 @@
+/src/main/resources/sevenzip/7z.exe binary
+/src/main/resources/sevenzip/7z.dll binary
+/src/main/resources/sevenzip/LICENSE.txt -text
+/src/main/resources/sevenzip/NOTICE.txt -text

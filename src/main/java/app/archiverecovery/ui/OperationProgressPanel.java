@@ -17,6 +17,7 @@ import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.util.List;
 
@@ -31,12 +32,16 @@ final class OperationProgressPanel extends JPanel {
     private final JLabel detailLabel = new JLabel("选择文件后即可开始");
     private final JLabel countLabel = new JLabel("0%");
     private final JProgressBar progressBar = new JProgressBar(0, 100);
+    private final JPanel extractionContext = new JPanel(new GridLayout(1, 3, 8, 0));
+    private final JLabel layerValue = new JLabel("等待开始");
+    private final JLabel archiveValue = new JLabel("—");
+    private final JLabel entryValue = new JLabel("—");
     private boolean extractionMode;
 
     OperationProgressPanel() {
         super(new BorderLayout(0, 10));
         Theme.applyCardStyle(this);
-        setPreferredSize(new Dimension(0, 158));
+        setPreferredSize(new Dimension(0, 218));
 
         JPanel header = new JPanel(new BorderLayout());
         header.setOpaque(false);
@@ -49,7 +54,15 @@ final class OperationProgressPanel extends JPanel {
         add(header, BorderLayout.NORTH);
 
         stepIndicator.setSteps(EXTRACTION_STEPS);
-        add(stepIndicator, BorderLayout.CENTER);
+        JPanel centerArea = new JPanel();
+        centerArea.setOpaque(false);
+        centerArea.setLayout(new BoxLayout(centerArea, BoxLayout.Y_AXIS));
+        stepIndicator.setMaximumSize(new Dimension(Integer.MAX_VALUE, 48));
+        centerArea.add(stepIndicator);
+        centerArea.add(Box.createVerticalStrut(8));
+        configureContextPanel();
+        centerArea.add(extractionContext);
+        add(centerArea, BorderLayout.CENTER);
 
         JPanel progressArea = new JPanel();
         progressArea.setOpaque(false);
@@ -77,8 +90,35 @@ final class OperationProgressPanel extends JPanel {
         add(progressArea, BorderLayout.SOUTH);
     }
 
+    private void configureContextPanel() {
+        extractionContext.setOpaque(false);
+        extractionContext.setMaximumSize(new Dimension(Integer.MAX_VALUE, 52));
+        extractionContext.add(createInfoCell("当前层级", layerValue));
+        extractionContext.add(createInfoCell("当前压缩包", archiveValue));
+        extractionContext.add(createInfoCell("正在处理", entryValue));
+        extractionContext.setVisible(false);
+    }
+
+    private JPanel createInfoCell(String caption, JLabel value) {
+        JPanel cell = new JPanel(new BorderLayout(0, 2));
+        cell.setBackground(new Color(247, 249, 253));
+        cell.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(230, 233, 241)),
+                BorderFactory.createEmptyBorder(5, 9, 5, 9)));
+        JLabel captionLabel = new JLabel(caption);
+        captionLabel.setFont(Theme.SMALL_FONT.deriveFont(10.5f));
+        captionLabel.setForeground(Theme.MUTED_TEXT);
+        value.setFont(Theme.SMALL_FONT.deriveFont(Font.BOLD, 11.5f));
+        value.setForeground(Theme.TEXT);
+        value.setToolTipText(value.getText());
+        cell.add(captionLabel, BorderLayout.NORTH);
+        cell.add(value, BorderLayout.CENTER);
+        return cell;
+    }
+
     void showReady(int fileCount) {
         extractionMode = false;
+        extractionContext.setVisible(false);
         stepIndicator.setSteps(EXTRACTION_STEPS);
         stepIndicator.setState(-1, false, false);
         progressBar.setIndeterminate(false);
@@ -93,6 +133,10 @@ final class OperationProgressPanel extends JPanel {
 
     void begin(boolean shouldExtract, int fileCount) {
         extractionMode = shouldExtract;
+        extractionContext.setVisible(shouldExtract);
+        layerValue.setText(shouldExtract ? "等待进入解压" : "—");
+        archiveValue.setText("—");
+        entryValue.setText("—");
         stepIndicator.setSteps(shouldExtract ? EXTRACTION_STEPS : RENAME_STEPS);
         stepIndicator.setState(0, false, false);
         setDeterminateProgress(0, Math.max(1, fileCount));
@@ -114,6 +158,11 @@ final class OperationProgressPanel extends JPanel {
                     : "已处理：" + abbreviate(fileName, 58));
         }
         statusBadge.setTextAndColor("修改后缀", Theme.PRIMARY, new Color(232, 236, 255));
+        if (extractionMode) {
+            layerValue.setText("后缀修改阶段");
+            archiveValue.setText("等待解压");
+            entryValue.setText("—");
+        }
     }
 
     void updateExtraction(ExtractionProgress progress) {
@@ -121,6 +170,22 @@ final class OperationProgressPanel extends JPanel {
             return;
         }
         stepIndicator.setState(2, false, false);
+        extractionContext.setVisible(true);
+        layerValue.setText(progress.nestedDepth() == 0
+                ? "首层"
+                : "嵌套第 " + progress.nestedDepth() + " 层");
+        archiveValue.setText(progress.archive() == null
+                ? phaseArchiveText(progress)
+                : abbreviate(progress.archive().getFileName().toString(), 34));
+        archiveValue.setToolTipText(progress.archive() == null
+                ? archiveValue.getText()
+                : progress.archive().toString());
+        entryValue.setText(progress.currentEntry().isBlank()
+                ? phaseEntryText(progress)
+                : abbreviate(progress.currentEntry(), 38));
+        entryValue.setToolTipText(progress.currentEntry().isBlank()
+                ? entryValue.getText()
+                : progress.currentEntry());
         switch (progress.phase()) {
             case PREPARING_LAYER -> {
                 setDeterminateProgress(0, progress.total());
@@ -133,7 +198,10 @@ final class OperationProgressPanel extends JPanel {
                 } else {
                     setIndeterminateExtractionProgress(progress.completed(), progress.total());
                 }
-                statusBadge.setTextAndColor("正在解压", Theme.PRIMARY, new Color(232, 236, 255));
+                String badge = progress.nestedDepth() == 0
+                        ? "正在解压"
+                        : "嵌套 " + progress.nestedDepth() + " 层 · 解压中";
+                statusBadge.setTextAndColor(badge, Theme.PRIMARY, new Color(232, 236, 255));
             }
             case SCANNING_NESTED -> {
                 setIndeterminateProgress();
@@ -147,6 +215,24 @@ final class OperationProgressPanel extends JPanel {
         detailLabel.setText(abbreviate(progress.message(), 76));
     }
 
+    private String phaseArchiveText(ExtractionProgress progress) {
+        return switch (progress.phase()) {
+            case PREPARING_LAYER -> "正在准备本层任务";
+            case SCANNING_NESTED -> "正在扫描解压目录";
+            case WAITING_FOR_USER -> "等待用户确认";
+            case EXTRACTING -> "等待压缩包信息";
+        };
+    }
+
+    private String phaseEntryText(ExtractionProgress progress) {
+        return switch (progress.phase()) {
+            case PREPARING_LAYER -> "即将开始";
+            case EXTRACTING -> "等待 7-Zip 返回文件名";
+            case SCANNING_NESTED -> "查找下一层压缩包";
+            case WAITING_FOR_USER -> "密码或嵌套文件选择";
+        };
+    }
+
     void finish(boolean warning, String detail) {
         int lastStep = (extractionMode ? EXTRACTION_STEPS : RENAME_STEPS).size() - 1;
         stepIndicator.setState(lastStep, true, false);
@@ -156,6 +242,10 @@ final class OperationProgressPanel extends JPanel {
         countLabel.setText("100%");
         countLabel.setForeground(warning ? Theme.WARNING : Theme.SUCCESS);
         detailLabel.setText(abbreviate(detail, 76));
+        if (extractionMode) {
+            entryValue.setText("全部处理完成");
+            entryValue.setToolTipText("全部处理完成");
+        }
         if (warning) {
             statusBadge.setTextAndColor("完成 · 有提示", Theme.WARNING, new Color(255, 246, 228));
         } else {
@@ -197,8 +287,8 @@ final class OperationProgressPanel extends JPanel {
         progressBar.setForeground(Theme.PRIMARY);
         countLabel.setForeground(Theme.MUTED_TEXT);
         countLabel.setText(total > 0
-                ? "等待 Bandizip 进度  ·  本层 " + completed + " / " + total
-                : "等待 Bandizip 进度");
+                ? "等待 7-Zip 进度  ·  本层 " + completed + " / " + total
+                : "等待 7-Zip 进度");
     }
 
     private void setExactExtractionProgress(int archivePercent, int completed, int total) {
@@ -206,7 +296,7 @@ final class OperationProgressPanel extends JPanel {
         progressBar.setForeground(Theme.PRIMARY);
         progressBar.setValue(archivePercent);
         countLabel.setForeground(Theme.PRIMARY);
-        countLabel.setText("当前压缩包 " + archivePercent + "%  ·  本层 "
+        countLabel.setText("当前包 " + archivePercent + "%  ·  本层 "
                 + completed + " / " + total);
     }
 

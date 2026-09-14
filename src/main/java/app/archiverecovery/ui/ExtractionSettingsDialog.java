@@ -1,5 +1,6 @@
 package app.archiverecovery.ui;
 
+import app.archiverecovery.extract.BundledSevenZip;
 import app.archiverecovery.extract.ExtractionPreferences;
 import app.archiverecovery.extract.ExtractionSettings;
 
@@ -28,10 +29,9 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 final class ExtractionSettingsDialog {
-    private static final String BANDIZIP_WEBSITE = "https://www.bandisoft.com/bandizip/";
+    private static final String SEVEN_ZIP_WEBSITE = "https://www.7-zip.org/";
     private final Component owner;
     private final ExtractionPreferences preferences;
-    private final JTextField bzPathField = new JTextField(34);
     private final JTextField outputRootField = new JTextField(34);
     private final JComboBox<Integer> concurrencyBox = new JComboBox<>(
             new Integer[]{1, 2, 3, 4, 5, 6, 7, 8});
@@ -41,7 +41,6 @@ final class ExtractionSettingsDialog {
     private ExtractionSettingsDialog(Component owner, ExtractionPreferences preferences) {
         this.owner = owner;
         this.preferences = preferences;
-        bzPathField.setText(initialBzPath());
         outputRootField.setText(preferences.outputRoot());
         concurrencyBox.setSelectedItem(preferences.concurrency());
         maxNestedDepthSpinner.setValue(preferences.maxNestedDepth());
@@ -78,13 +77,12 @@ final class ExtractionSettingsDialog {
         constraints.anchor = GridBagConstraints.WEST;
         constraints.fill = GridBagConstraints.HORIZONTAL;
 
-        addRow(panel, constraints, 0, "bz.exe 路径", bzPathField,
-                browseButton("浏览…", this::chooseBzExecutable));
-        addRow(panel, constraints, 1, "解压根目录", outputRootField,
+        addRow(panel, constraints, 0, "解压根目录", outputRootField,
                 browseButton("选择…", this::chooseOutputRoot));
 
         constraints.gridx = 0;
-        constraints.gridy = 2;
+        constraints.gridy = 1;
+        constraints.gridwidth = 1;
         constraints.weightx = 0;
         panel.add(new JLabel("并发任务数"), constraints);
         constraints.gridx = 1;
@@ -92,12 +90,10 @@ final class ExtractionSettingsDialog {
         panel.add(concurrencyBox, constraints);
         constraints.gridx = 2;
         constraints.weightx = 0;
-        JButton autoFind = browseButton("自动查找", this::autoFindBzExecutable);
-        panel.add(autoFind, constraints);
+        panel.add(new JLabel("范围 1–8"), constraints);
 
         constraints.gridx = 0;
-        constraints.gridy = 3;
-        constraints.gridwidth = 1;
+        constraints.gridy = 2;
         constraints.weightx = 0;
         panel.add(new JLabel("最大嵌套层数"), constraints);
         constraints.gridx = 1;
@@ -108,10 +104,9 @@ final class ExtractionSettingsDialog {
         panel.add(new JLabel("默认 10，范围 1–50"), constraints);
 
         constraints.gridx = 0;
-        constraints.gridy = 4;
+        constraints.gridy = 3;
         constraints.gridwidth = 3;
         constraints.weightx = 1;
-        constraints.fill = GridBagConstraints.HORIZONTAL;
         panel.add(createTipPane(), constraints);
         return panel;
     }
@@ -140,9 +135,11 @@ final class ExtractionSettingsDialog {
     private JEditorPane createTipPane() {
         JEditorPane tip = new JEditorPane("text/html",
                 "<html><body style='font-family:Microsoft YaHei UI;font-size:11px;color:#697184'>"
-                        + "小贴士：<a href='" + BANDIZIP_WEBSITE + "'>Bandizip 官网</a><br>"
-                        + "默认位置：C:\\Program Files\\Bandizip\\bz.exe<br>"
-                        + "部分 32 位安装可能位于 C:\\Program Files (x86)\\Bandizip\\bz.exe"
+                        + "程序随包提供官方 7-Zip " + BundledSevenZip.VERSION
+                        + " x64 组件，并在首次解压时自动释放和校验。<br>"
+                        + "7-Zip 采用 GNU LGPL，部分代码采用 BSD 许可，并包含 unRAR 限制。"
+                        + "详情请参阅随程序提供的许可文件与 <a href='" + SEVEN_ZIP_WEBSITE
+                        + "'>7-Zip 官方网站</a>。"
                         + "</body></html>");
         tip.setEditable(false);
         tip.setOpaque(false);
@@ -153,16 +150,6 @@ final class ExtractionSettingsDialog {
             }
         });
         return tip;
-    }
-
-    private void chooseBzExecutable() {
-        JFileChooser chooser = new JFileChooser();
-        chooser.setDialogTitle("选择 Bandizip 的 bz.exe");
-        chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-        setCurrentSelection(chooser, bzPathField.getText());
-        if (chooser.showOpenDialog(owner) == JFileChooser.APPROVE_OPTION) {
-            bzPathField.setText(chooser.getSelectedFile().getAbsolutePath());
-        }
     }
 
     private void chooseOutputRoot() {
@@ -187,48 +174,22 @@ final class ExtractionSettingsDialog {
         }
     }
 
-    private void autoFindBzExecutable() {
-        Optional<Path> found = ExtractionPreferences.findDefaultBzExecutable();
-        if (found.isPresent()) {
-            bzPathField.setText(found.get().toString());
-        } else {
-            JOptionPane.showMessageDialog(owner,
-                    "没有在默认安装目录找到 bz.exe，请点击“浏览”手动选择。",
-                    "未找到 Bandizip", JOptionPane.INFORMATION_MESSAGE);
-        }
-    }
-
     private ExtractionSettings validateAndCreateSettings() {
-        if (bzPathField.getText().isBlank() || outputRootField.getText().isBlank()) {
-            throw new IllegalArgumentException("请选择 bz.exe 并设置解压根目录");
+        if (outputRootField.getText().isBlank()) {
+            throw new IllegalArgumentException("请选择解压根目录");
         }
-        final Path bzExecutable;
         final Path outputRoot;
         try {
-            bzExecutable = Path.of(bzPathField.getText().strip()).toAbsolutePath().normalize();
             outputRoot = Path.of(outputRootField.getText().strip()).toAbsolutePath().normalize();
         } catch (InvalidPathException | NullPointerException exception) {
-            throw new IllegalArgumentException("请输入有效的 bz.exe 路径和解压根目录");
-        }
-        if (!Files.isRegularFile(bzExecutable)
-                || !bzExecutable.getFileName().toString().equalsIgnoreCase("bz.exe")) {
-            throw new IllegalArgumentException("请选择 Bandizip 安装目录中的 bz.exe");
+            throw new IllegalArgumentException("请输入有效的解压根目录");
         }
         if (Files.exists(outputRoot) && !Files.isDirectory(outputRoot)) {
             throw new IllegalArgumentException("解压根目录必须是文件夹");
         }
-        return new ExtractionSettings(bzExecutable, outputRoot,
+        return new ExtractionSettings(outputRoot,
                 (Integer) concurrencyBox.getSelectedItem(),
                 (Integer) maxNestedDepthSpinner.getValue());
-    }
-
-    private String initialBzPath() {
-        if (!preferences.bzPath().isBlank()) {
-            return preferences.bzPath();
-        }
-        return ExtractionPreferences.findDefaultBzExecutable()
-                .map(Path::toString)
-                .orElse("");
     }
 
     private void openWebsite(String website) {
@@ -239,7 +200,7 @@ final class ExtractionSettingsDialog {
             Desktop.getDesktop().browse(URI.create(website));
         } catch (Exception exception) {
             JOptionPane.showMessageDialog(owner, "请在浏览器访问：" + website,
-                    "Bandizip 官网", JOptionPane.INFORMATION_MESSAGE);
+                    "7-Zip 官方网站", JOptionPane.INFORMATION_MESSAGE);
         }
     }
 }

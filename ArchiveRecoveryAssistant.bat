@@ -15,7 +15,8 @@ if not exist "%JAVA_HOME%\bin\javac.exe" (
     exit /b 1
 )
 
-if not exist "target\classes" mkdir "target\classes"
+if exist "target\classes" rmdir /s /q "target\classes"
+mkdir "target\classes"
 (for /r "src\main\java" %%F in (*.java) do (
     set "SOURCE_FILE=%%F"
     set "SOURCE_FILE=!SOURCE_FILE:\=/!"
@@ -25,6 +26,13 @@ if not exist "target\classes" mkdir "target\classes"
 "%JAVA_HOME%\bin\javac.exe" -encoding UTF-8 --release 17 -d "target\classes" @"target\sources.txt"
 if errorlevel 1 (
     echo Compilation failed.
+    pause
+    exit /b 1
+)
+
+xcopy /E /I /Y "src\main\resources\*" "target\classes\" >nul
+if errorlevel 1 (
+    echo Resource copy failed.
     pause
     exit /b 1
 )

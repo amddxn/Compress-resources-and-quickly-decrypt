@@ -4,7 +4,7 @@ import java.nio.file.Path;
 
 /**
  * Structured progress information for a batch extraction operation.
- * archivePercent is populated only when bz.exe emits an actual percentage.
+ * archivePercent and currentEntry are populated from 7-Zip's live console output.
  */
 public record ExtractionProgress(Phase phase,
                                  int nestedDepth,
@@ -12,14 +12,25 @@ public record ExtractionProgress(Phase phase,
                                  int total,
                                  Path archive,
                                  String message,
-                                 int archivePercent) {
+                                 int archivePercent,
+                                 String currentEntry) {
     public ExtractionProgress(Phase phase,
                               int nestedDepth,
                               int completed,
                               int total,
                               Path archive,
                               String message) {
-        this(phase, nestedDepth, completed, total, archive, message, -1);
+        this(phase, nestedDepth, completed, total, archive, message, -1, "");
+    }
+
+    public ExtractionProgress(Phase phase,
+                              int nestedDepth,
+                              int completed,
+                              int total,
+                              Path archive,
+                              String message,
+                              int archivePercent) {
+        this(phase, nestedDepth, completed, total, archive, message, archivePercent, "");
     }
 
     public ExtractionProgress {
@@ -30,6 +41,7 @@ public record ExtractionProgress(Phase phase,
         }
         message = message == null ? "" : message;
         archivePercent = Math.max(-1, Math.min(100, archivePercent));
+        currentEntry = currentEntry == null ? "" : currentEntry;
     }
 
     public int percent() {

@@ -9,12 +9,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-public final class BzExtractionServiceTest {
-    private BzExtractionServiceTest() {
+public final class SevenZipExtractionServiceTest {
+    private SevenZipExtractionServiceTest() {
     }
 
-    public static void main(String[] args) throws IOException {
-        Path directory = Files.createTempDirectory("bz-extraction-test-");
+    public static void main(String[] args) throws Exception {
+        Path directory = Files.createTempDirectory("sevenzip-extraction-test-");
         try {
             Path zip = Files.writeString(directory.resolve("album.zip"), "zip-main");
             Path z01 = Files.writeString(directory.resolve("album.z01"), "zip-part");
@@ -108,9 +108,9 @@ public final class BzExtractionServiceTest {
             assertTrue(Files.exists(duplicateOneA) && Files.exists(duplicateOneB),
                     "重复编号文件必须保留在原处");
 
-            BzExtractionService service = new BzExtractionService();
-            ExtractionSettings settings = new ExtractionSettings(
-                    directory.resolve("bz.exe"), outputRoot, 3, 12);
+            BundledSevenZip bundledSevenZip = new BundledSevenZip(directory.resolve("engine"));
+            SevenZipExtractionService service = new SevenZipExtractionService(bundledSevenZip);
+            ExtractionSettings settings = new ExtractionSettings(outputRoot, 3, 12);
             assertEquals(12, settings.maxNestedDepth(), "最大嵌套层数设置必须保留");
             ExtractionTask task = new ExtractionTask(zip, outputRoot.resolve("album"));
             ExtractionProgress halfway = new ExtractionProgress(
@@ -119,44 +119,135 @@ public final class BzExtractionServiceTest {
             ExtractionProgress exactProgress = new ExtractionProgress(
                     ExtractionProgress.Phase.EXTRACTING, 0, 0, 1, zip,
                     "正在解压", 37);
-            assertTrue(exactProgress.hasExactPercentage(), "bz.exe 百分比必须标记为真实进度");
+            assertTrue(exactProgress.hasExactPercentage(), "7-Zip 百分比必须标记为真实进度");
             assertEquals(37, exactProgress.percent(), "真实解压百分比必须优先显示");
             assertEquals(37, service.parseProgressPercent("Extracting  37%  demo.bin").orElse(-1),
-                    "必须解析 bz.exe 的行进度");
+                    "必须解析 7-Zip 的行进度");
             assertEquals(100, service.parseProgressPercent("[100%] done").orElse(-1),
                     "必须解析完成进度");
             assertTrue(service.parseProgressPercent("report100%.txt").isEmpty(),
                     "文件名中的百分号不能误报为解压进度");
-            List<Integer> streamedProgress = new ArrayList<>();
+            List<SevenZipExtractionService.SevenZipProcessProgress> streamedProgress =
+                    new ArrayList<>();
             service.readOutputTail(new ByteArrayInputStream(
-                            "Extracting 1%\rExtracting 37%\rExtracting 100%\r"
+                            " 1%\r- first.bin\r 37%\r- second.bin\r 100%\r"
                                     .getBytes(StandardCharsets.UTF_8)),
                     streamedProgress::add);
-            assertEquals(List.of(1, 37, 100), streamedProgress,
-                    "同一输出块中的实时百分比必须全部上报");
-            List<String> command = service.createCommand(settings, task, "秘密".toCharArray());
+            assertTrue(streamedProgress.stream().anyMatch(item -> item.percent() == 37),
+                    "同一输出块中的实时百分比必须上报");
+            assertTrue(streamedProgress.stream().anyMatch(item -> item.currentEntry().equals("second.bin")),
+                    "必须上报 7-Zip 正在处理的文件名");
+            List<String> command = service.createCommand(settings, task);
             assertTrue(command.contains("x"), "命令必须使用解压操作");
-            assertTrue(command.contains("-consolemode:utf8"), "控制台输出必须使用 UTF-8");
             assertTrue(command.contains("-aou"), "默认必须避免覆盖同名文件");
-            assertTrue(command.contains("-p:秘密"), "密码必须传给 bz.exe");
-            assertTrue(command.contains("-o:" + task.outputDirectory()), "必须传递输出目录");
+            assertTrue(command.contains("-bsp1"), "必须开启 7-Zip 的真实进度输出");
+            assertTrue(command.contains("-bb1"), "必须开启当前文件输出");
+            assertTrue(command.contains("-sccUTF-8"), "控制台输出必须使用 UTF-8");
+            assertTrue(command.stream().noneMatch(argument -> argument.contains("秘密")),
+                    "密码不能出现在进程命令行中");
+            assertTrue(command.contains("-o" + task.outputDirectory()), "必须传递输出目录");
             assertEquals(zip.toString(), command.get(command.size() - 1), "最后一个参数必须是入口压缩包");
-            assertTrue(service.isPasswordError("0xa0000020: Password is needed"),
+            assertTrue(service.isPasswordError("Enter password (will not be echoed):"),
                     "需要密码错误必须触发密码输入");
-            assertTrue(service.isPasswordError("0xa0000021: Invalid Password"),
+            assertTrue(service.isPasswordError("Cannot open encrypted archive. Wrong password?"),
                     "密码错误必须允许重新输入");
-            assertTrue(service.isPasswordError("ERROR: Password required"),
-                    "新版 bz.exe 的密码提示必须触发密码输入");
             assertTrue(!service.isPasswordError("CRC error"),
                     "普通解压错误不能误触发密码输入");
 
-            System.out.println("BzExtractionService tests passed.");
+            verifyBundledEngineAndNestedExtraction(directory, bundledSevenZip);
+            verifyPasswordIsSentThroughStandardInput(directory, bundledSevenZip);
+
+            System.out.println("SevenZipExtractionService tests passed.");
         } finally {
             try (var paths = Files.walk(directory)) {
                 for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
                     Files.deleteIfExists(path);
                 }
             }
+        }
+    }
+
+    private static void verifyBundledEngineAndNestedExtraction(
+            Path directory, BundledSevenZip bundledSevenZip) throws Exception {
+        Path executable = bundledSevenZip.executable();
+        assertTrue(Files.isRegularFile(executable), "内置 7z.exe 必须可以释放到本地");
+        assertTrue(Files.isRegularFile(executable.resolveSibling("7z.dll")),
+                "内置 7z.dll 必须与可执行文件一起释放");
+        assertTrue(Files.isRegularFile(bundledSevenZip.licenseFile()),
+                "第三方许可文件必须随内置组件释放");
+        assertTrue(Files.isRegularFile(bundledSevenZip.noticeFile()),
+                "第三方声明必须随内置组件释放");
+
+        Path source = Files.createDirectories(directory.resolve("integration-source"));
+        Files.writeString(source.resolve("payload.txt"), "nested extraction works",
+                StandardCharsets.UTF_8);
+        runSevenZip(executable, source, "a", "-tzip", "inner.zip", "payload.txt");
+        runSevenZip(executable, source, "a", "-t7z", "outer.7z", "inner.zip");
+
+        Path extractionRoot = directory.resolve("integration-output");
+        SevenZipExtractionService service = new SevenZipExtractionService(bundledSevenZip);
+        List<ExtractionProgress> progressEvents = new ArrayList<>();
+        ExtractionBatchResult result = service.extract(
+                List.of(source.resolve("outer.7z")),
+                new ExtractionSettings(extractionRoot, 1, 5),
+                null, null, ignored -> {
+                }, progressEvents::add);
+
+        assertEquals(2L, result.successCount(), "首层与嵌套压缩包都必须解压成功");
+        assertEquals(1, result.nestedArchiveCount(), "必须统计实际解压的嵌套压缩包");
+        assertTrue(progressEvents.stream().anyMatch(event ->
+                        event.phase() == ExtractionProgress.Phase.EXTRACTING
+                                && event.nestedDepth() == 1),
+                "嵌套层解压必须产生可见的结构化进度");
+        assertTrue(progressEvents.stream().anyMatch(event -> event.archivePercent() == 100),
+                "解压成功时必须明确上报 100% 进度");
+        assertTrue(progressEvents.stream().anyMatch(event -> !event.currentEntry().isBlank()),
+                "7-Zip 输出的当前文件名必须进入结构化进度");
+        assertEquals("nested extraction works",
+                Files.readString(extractionRoot.resolve("outer/inner/payload.txt"),
+                        StandardCharsets.UTF_8),
+                "嵌套压缩包内容必须实际写入下一层输出目录");
+    }
+
+    private static void verifyPasswordIsSentThroughStandardInput(
+            Path directory, BundledSevenZip bundledSevenZip) throws Exception {
+        Path source = Files.createDirectories(directory.resolve("password-source"));
+        Files.writeString(source.resolve("secret.txt"), "private content", StandardCharsets.UTF_8);
+        Path executable = bundledSevenZip.executable();
+        runSevenZip(executable, source, "a", "-t7z", "-ptest-password", "-mhe=on",
+                "encrypted.7z", "secret.txt");
+
+        int[] passwordRequests = {0};
+        ExtractionBatchResult result = new SevenZipExtractionService(bundledSevenZip).extract(
+                List.of(source.resolve("encrypted.7z")),
+                new ExtractionSettings(directory.resolve("password-output"), 1, 3),
+                (archive, rejectedPassword, errorMessage) -> {
+                    passwordRequests[0]++;
+                    return java.util.Optional.of("test-password".toCharArray());
+                }, ignored -> {
+                });
+
+        assertEquals(1L, result.successCount(), "通过标准输入提供密码后必须解压成功");
+        assertEquals(1, passwordRequests[0], "加密压缩包应只提示一次正确密码");
+        assertEquals("private content",
+                Files.readString(directory.resolve("password-output/encrypted/secret.txt"),
+                        StandardCharsets.UTF_8),
+                "加密压缩包的文件内容必须正确");
+    }
+
+    private static void runSevenZip(Path executable, Path workingDirectory, String... arguments)
+            throws IOException, InterruptedException {
+        List<String> command = new ArrayList<>();
+        command.add(executable.toString());
+        command.addAll(List.of(arguments));
+        Process process = new ProcessBuilder(command)
+                .directory(workingDirectory.toFile())
+                .redirectErrorStream(true)
+                .start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new AssertionError("7-Zip 测试命令失败（" + exitCode + "）：" + output);
         }
     }
 

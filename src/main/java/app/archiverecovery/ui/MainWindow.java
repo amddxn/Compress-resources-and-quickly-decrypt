@@ -1,6 +1,6 @@
 package app.archiverecovery.ui;
 
-import app.archiverecovery.extract.BzExtractionService;
+import app.archiverecovery.extract.SevenZipExtractionService;
 import app.archiverecovery.extract.ExtractionBatchResult;
 import app.archiverecovery.extract.ExtractionPreferences;
 import app.archiverecovery.extract.ExtractionProgress;
@@ -33,15 +33,12 @@ import javax.swing.TransferHandler;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.datatransfer.DataFlavor;
 import java.io.File;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -56,7 +53,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public final class MainWindow extends JFrame {
     private final FileRenameService renameService = new FileRenameService();
-    private final BzExtractionService extractionService = new BzExtractionService();
+    private final SevenZipExtractionService extractionService = new SevenZipExtractionService();
     private final ExtractionPreferences extractionPreferences = new ExtractionPreferences();
     private final RenameTableModel tableModel = new RenameTableModel();
     private final List<Path> selectedFiles = new ArrayList<>();
@@ -181,7 +178,7 @@ public final class MainWindow extends JFrame {
         choices.add(multipartChoices);
         card.add(choices, BorderLayout.CENTER);
 
-        JPanel notes = new JPanel(new GridLayout(3, 1, 0, 4));
+        JPanel notes = new JPanel(new GridLayout(2, 1, 0, 4));
         notes.setOpaque(false);
         JLabel note = new JLabel("分卷按钮决定输出格式；按文件名分组识别卷号，并自动补齐缺号");
         note.setForeground(Theme.MUTED_TEXT);
@@ -195,24 +192,8 @@ public final class MainWindow extends JFrame {
         passwordTip.setFont(Theme.SMALL_FONT);
         extractionRow.add(passwordTip);
         notes.add(extractionRow);
-        notes.add(createBandizipTip());
         card.add(notes, BorderLayout.SOUTH);
         return card;
-    }
-
-    private JLabel createBandizipTip() {
-        JLabel tip = new JLabel("<html>小贴士：<u>Bandizip 官网</u>　默认 bz.exe：C:\\Program Files\\Bandizip\\bz.exe</html>");
-        tip.setForeground(Theme.PRIMARY);
-        tip.setFont(Theme.SMALL_FONT);
-        tip.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        tip.setToolTipText("点击打开 Bandizip 官网");
-        tip.addMouseListener(new java.awt.event.MouseAdapter() {
-            @Override
-            public void mouseClicked(java.awt.event.MouseEvent event) {
-                openBandizipWebsite();
-            }
-        });
-        return tip;
     }
 
     private JPanel createTableCard() {
@@ -384,7 +365,7 @@ public final class MainWindow extends JFrame {
         }
 
         String extractionText = shouldExtract
-                ? "\n修改完成后将调用 bz.exe 在后台解压。"
+                ? "\n修改完成后将调用内置 7-Zip 在后台解压。"
                 : "";
         int answer = JOptionPane.showConfirmDialog(this,
                 "即将修改 " + readyCount + " 个文件的后缀。" + extractionText
@@ -579,26 +560,11 @@ public final class MainWindow extends JFrame {
 
     private Optional<ExtractionSettings> validSavedExtractionSettings() {
         return extractionPreferences.loadSettings().filter(settings ->
-                Files.isRegularFile(settings.bzExecutable())
-                        && settings.bzExecutable().getFileName().toString().equalsIgnoreCase("bz.exe")
-                        && (!Files.exists(settings.outputRoot()) || Files.isDirectory(settings.outputRoot())));
+                !Files.exists(settings.outputRoot()) || Files.isDirectory(settings.outputRoot()));
     }
 
     private Optional<ExtractionSettings> openExtractionSettings() {
         return ExtractionSettingsDialog.show(this, extractionPreferences);
-    }
-
-    private void openBandizipWebsite() {
-        String website = "https://www.bandisoft.com/bandizip/";
-        try {
-            if (!Desktop.isDesktopSupported()) {
-                throw new IllegalStateException("系统不支持打开浏览器");
-            }
-            Desktop.getDesktop().browse(URI.create(website));
-        } catch (Exception exception) {
-            JOptionPane.showMessageDialog(this, "请在浏览器访问：" + website,
-                    "Bandizip 官网", JOptionPane.INFORMATION_MESSAGE);
-        }
     }
 
     private String friendlyMessage(Throwable throwable) {

@@ -1,37 +1,36 @@
 # Archive Recovery Assistant
 
-压缩文件恢复与解压助手是一款面向 Windows 的桌面工具，使用 Java 17 与 Swing 开发。它可以批量修复 ZIP、7Z、RAR 及其分卷文件被干扰或伪装的后缀，并按需调用 Bandizip 自动解压、检查嵌套压缩包和继续处理下一层文件。
+压缩文件恢复与解压助手是一款面向 Windows x64 的桌面工具，使用 Java 17 与 Swing 开发。它可以批量恢复 ZIP、7Z、RAR 及其分卷文件被干扰或伪装的后缀，并使用随程序提供的官方 7-Zip 组件自动解压、检查嵌套压缩包和继续处理下一层文件。
 
-当前版本：`3.1.0`
+当前版本：`3.2.0`
 
 ## 下载与版本选择
 
-请在 GitHub Releases 中下载程序，不要把 GitHub 自动生成的 `Source code (zip)` 当成免安装版。
+请在 [GitHub Releases](https://github.com/amddxn/Compress-resources-and-quickly-decrypt/releases) 下载程序，不要把 GitHub 自动生成的 `Source code (zip)` 当成免安装版。
 
 | 文件 | 用途 |
 | --- | --- |
-| [`ArchiveRecoveryAssistant-3.1.0.exe`](https://github.com/amddxn/Compress-resources-and-quickly-decrypt/releases/latest/download/ArchiveRecoveryAssistant-3.1.0.exe) | Windows 安装版，按向导安装并创建快捷方式 |
-| [`ArchiveRecoveryAssistant-3.1.0-portable.zip`](https://github.com/amddxn/Compress-resources-and-quickly-decrypt/releases/latest/download/ArchiveRecoveryAssistant-3.1.0-portable.zip) | 免安装版，解压完整目录后直接运行 |
+| `ArchiveRecoveryAssistant-3.2.0.exe` | Windows 安装版，按向导安装并创建快捷方式 |
+| `ArchiveRecoveryAssistant-3.2.0-portable.zip` | 免安装版，解压完整目录后直接运行 |
 
-安装版和免安装版都内置精简 Java 运行时，目标电脑不需要另外安装 Java。免安装版中的主程序必须与同目录的 `app`、`runtime` 文件夹一起保留，不能只复制单独的 EXE。
-
-程序不会捆绑 Bandizip。仅使用“只修改”功能时不需要 Bandizip；使用自动解压功能时，需要在设置中绑定 Bandizip 安装目录里的 `bz.exe`。
+安装版和免安装版均包含精简 Java 17 运行环境和 7-Zip 26.03 x64 解压组件，目标电脑不需要另装 Java、7-Zip 或其他解压软件。免安装版中的主程序必须与同目录的 `app`、`runtime` 文件夹一起保留，不能只复制单独的 EXE。
 
 ## 主要功能
 
-- 支持点击选择或直接拖入多个文件，自动去除重复项。
+- 支持点击选择或直接拖入多个文件，并自动去除重复项。
 - 支持普通 ZIP、7Z、RAR 后缀恢复。
 - 支持 ZIP、7Z、RAR 分卷文件的识别、分组、卷号恢复和缺号补全。
 - 只修改文件名，不重新编码或改写原文件内容。
 - 提供修改预览，执行前展示原文件名、目标文件名、识别类型和冲突状态。
 - 可选择“只修改”或“修改并解压”，执行前再次确认。
-- 后台调用 Bandizip，可配置解压目录和 1–8 个并发任务。
+- 内置官方 7-Zip 26.03 x64，可配置解压目录、1–8 个并发任务及最大嵌套深度。
+- 支持 ZIP、7Z、RAR（包括 RAR5）等 7-Zip 可读取格式的解压。
 - 支持加密压缩包、密码重试以及本次任务共用密码。
 - 支持递归检查和解压多层嵌套压缩包，最大层数可配置为 1–50。
 - 支持识别并整理散落在不同子文件夹内的标准分卷文件。
 - 每层解压后提供人工复核窗口，可以选择疑似伪装文件并指定恢复格式。
-- 提供可视化步骤条、当前任务状态、当前压缩包和解压进度。
-- 遇到同名目标文件时不覆盖，失败任务产生的空目录会尽量自动清理。
+- 提供可视化步骤条，并实时显示当前层级、当前压缩包、正在处理的文件、真实解压百分比和本层完成数。
+- 遇到同名目标文件时不覆盖；失败任务产生的空目录会尽量自动清理。
 
 ## 快速开始
 
@@ -40,11 +39,10 @@
 3. 点击文件选择区域，或者把文件直接拖入窗口。
 4. 在修改预览中确认目标名称和状态。
 5. 选择“只修改”或“修改并解压”。
-6. 确认提示后开始处理。
+6. 首次使用自动解压时，在“解压设置”中选择输出目录。
+7. 确认提示后开始处理。
 
 程序启动、选择文件或生成预览都不会自动修改文件，只有确认执行后才会进行重命名。
-
-完整流程如下：
 
 ```text
 选择文件 → 生成修改预览 → 修复后缀 → 可选自动解压
@@ -95,35 +93,34 @@
 - `6月新补.1ra3r3.002` → `6月新补.part2.rar`
 - `2025.06.7z.mp3` → `2025.7z.001`（分卷模式从第一个 `.` 起替换）
 
-## Bandizip 自动解压
+## 内置 7-Zip 自动解压
 
-打开界面右上角的“解压设置”，配置以下内容：
+打开界面右上角的“解压设置”，可以配置：
 
-- `bz.exe` 路径。
 - 解压根目录。
 - 1–8 个并发解压任务，默认为 1。
 - 1–50 层最大嵌套深度，默认为 10。
 
-常见的 Bandizip 路径：
+无需选择任何外部程序。第一次执行解压时，应用会把内置文件释放到：
 
 ```text
-C:\Program Files\Bandizip\bz.exe
-C:\Program Files (x86)\Bandizip\bz.exe
+%LOCALAPPDATA%\ArchiveRecoveryAssistant\engine\7zip-26.03
 ```
 
-设置保存在当前 Windows 用户配置中。选择“修改并解压”后，程序先完成后缀修改，再为每个有效入口压缩包创建独立输出目录并调用 `bz.exe`。Bandizip 遇到同名文件时使用自动改名策略，不覆盖已有文件。
+`7z.exe`、`7z.dll`、`LICENSE.txt` 和 `NOTICE.txt` 均会在使用前进行 SHA-256 校验；缺失或被修改的文件会从程序资源中重新释放。每个入口压缩包使用独立输出目录；`-aou` 自动改名模式用于避免覆盖同名输出文件。
 
-Bandizip 官网：<https://www.bandisoft.com/bandizip/>
+本项目仅使用 7-Zip 的解压能力，不提供创建 RAR 压缩包的功能。某一格式能否成功解压仍取决于文件是否完整、分卷是否齐全，以及 7-Zip 对该格式的读取支持。
 
 ## 加密压缩包与密码
 
-- 只有 Bandizip 返回需要密码或密码错误时，程序才会显示密码窗口。
+- 只有 7-Zip 返回需要密码或密码错误时，程序才会显示密码窗口。
 - 密码框支持中文输入法、英文、数字和符号。
 - 密码错误后可以继续重新输入。
 - 勾选“本次上传任务的所有压缩包都使用此密码”后，后续压缩包会复用该密码。
 - 未勾选时，每个加密压缩包和每层加密嵌套包分别询问。
 - 取消输入只会让当前压缩包记录为失败，其他任务仍可继续。
-- 密码只保存在当前任务内存中，任务结束后立即清除，不写入配置文件。
+- 密码通过标准输入传给 7-Zip，不会放入进程命令行，也不会写入配置文件。
+- 密码只在当前任务内存中短暂保留；使用后会尽量清除字符数组。
 
 ## 嵌套压缩包处理
 
@@ -148,25 +145,26 @@ Bandizip 官网：<https://www.bandisoft.com/bandizip/>
 
 ## 可视化进度
 
-处理进度卡片包含以下阶段：
-
 ```text
 准备任务 → 修改后缀 → 解压与检查 → 处理完成
 ```
 
 - 修改阶段按实际处理文件数显示完成数和百分比。
-- 解压阶段实时读取 `bz.exe` 控制台输出；Bandizip 提供百分比时，显示当前压缩包的真实百分比。
-- 同时显示当前嵌套层以及本层已完成任务数。
+- 解压阶段读取 7-Zip 的标准进度输出，显示当前压缩包的真实百分比。
+- 独立信息区持续显示“当前层级”“当前压缩包”和“正在处理”的文件名。
+- 进入嵌套包后，状态会明确显示“嵌套 N 层 · 解压中”，不会把嵌套任务混作首层。
+- 同时显示当前包百分比和本层已完成任务数。
 - 扫描下一层、等待密码或等待人工确认时，会切换为对应状态。
-- 某些 Bandizip 版本或压缩格式不输出百分比时，进度条使用不确定动画并明确显示“等待 Bandizip 进度”，不会用任务数量伪装成解压百分比。
+- 如果 7-Zip 暂未输出百分比，进度条会显示“等待 7-Zip 进度”的不确定动画，不用任务数量伪装真实解压百分比。
 - 完成、警告和异常分别使用不同颜色显示。
 
 ## 安全策略与限制
 
 - 重命名只改变文件名，不改变文件内容。
 - 已有同名目标文件不会被覆盖。
-- Bandizip 解压使用自动改名策略，不覆盖同名输出文件。
-- 密码不持久化。
+- 7-Zip 解压使用自动改名策略，不覆盖同名输出文件。
+- 密码不持久化，也不出现在 7-Zip 命令行参数中。
+- 内置组件释放前后会校验 SHA-256。
 - 跨目录整理只发生在本次解压产生的目录中，并且只处理通过校验或用户明确确认的分卷。
 - 本工具不是压缩包修复器，无法修复 CRC 错误、缺失分卷或已经损坏的数据。
 - 后缀恢复依赖用户选择的目标格式；选择错误格式不会把文件内容转换成该格式。
@@ -174,11 +172,23 @@ Bandizip 官网：<https://www.bandisoft.com/bandizip/>
 
 处理重要文件前仍建议保留备份，并先用少量文件验证所选规则。
 
+## 第三方组件与许可
+
+本软件使用了 7-Zip 的部分组件，并包含未经修改的官方 Windows x64 `7z.exe` 与 `7z.dll`，版本为 26.03。
+
+7-Zip Copyright © 1999–2026 Igor Pavlov。7-Zip 的主要许可为 GNU LGPL；部分代码采用 BSD 许可，RAR 解压相关代码包含 unRAR restriction。完整条款以随项目提供的 [`LICENSE.txt`](src/main/resources/sevenzip/LICENSE.txt) 为准，组件来源、哈希和再分发说明见 [`NOTICE.txt`](src/main/resources/sevenzip/NOTICE.txt)。上述文件也会随二进制组件一起释放。
+
+- 7-Zip 官方网站及源代码：<https://www.7-zip.org/>
+- 7-Zip 官方许可说明：<https://www.7-zip.org/license.txt>
+- 7-Zip 26.03 官方发布页：<https://github.com/ip7z/7zip/releases/tag/26.03>
+
+Archive Recovery Assistant 是独立项目，与 7-Zip 或 Igor Pavlov 不存在隶属、授权或背书关系。
+
 ## 系统要求
 
 - Windows x64。
-- 安装版或免安装版已内置 Java 17 运行环境。
-- 自动解压功能需要另外安装 Bandizip，并提供可用的 `bz.exe`。
+- 安装版或免安装版已包含精简 Java 17 运行环境。
+- 自动解压无需安装外部解压软件。
 
 ## 从源码运行
 
@@ -188,35 +198,45 @@ Bandizip 官网：<https://www.bandisoft.com/bandizip/>
 app.archiverecovery.Main
 ```
 
-也可以双击项目根目录中的 `ArchiveRecoveryAssistant.bat`。该脚本会编译源码并启动程序，但要求系统已经配置 JDK 17 和 `JAVA_HOME`。
+也可以双击项目根目录中的 `ArchiveRecoveryAssistant.bat`。该脚本会编译 Java 源码、复制内置资源并启动程序，但要求系统已配置 JDK 17 和 `JAVA_HOME`。
 
-PowerShell 中可以直接执行：
+使用 Maven 时执行：
 
 ```powershell
-javac -encoding UTF-8 --release 17 -d target/classes `
-  (Get-ChildItem src/main/java -Filter *.java -Recurse).FullName
-java -cp target/classes app.archiverecovery.Main
+mvn package
+java -jar target/archive-recovery-assistant-3.2.0.jar
 ```
 
 ## 项目结构
 
 ```text
-src/main/java/app/archiverecovery/
-├─ Main.java                  程序入口
-├─ model/                     修改计划与状态模型
-├─ service/                   后缀识别、分卷规划与重命名
-├─ extract/                   Bandizip、密码、嵌套扫描与任务进度
-└─ ui/                        Swing 主界面、设置和复核窗口
+src/main/
+├─ java/app/archiverecovery/
+│  ├─ Main.java              程序入口
+│  ├─ model/                 修改计划与状态模型
+│  ├─ service/               后缀识别、分卷规划与重命名
+│  ├─ extract/               内置 7-Zip、密码、嵌套扫描与进度
+│  └─ ui/                    Swing 主界面、设置和复核窗口
+└─ resources/sevenzip/       官方二进制、完整许可与第三方声明
 
 src/test/java/app/archiverecovery/
-├─ service/                   后缀、识别与重命名测试
-└─ extract/                   解压规划和嵌套恢复测试
+├─ service/                  后缀、识别与重命名测试
+└─ extract/                  真实解压、密码、规划与嵌套恢复测试
 ```
+
+## 3.2.0 更新内容
+
+- 移除外部解压程序路径绑定和相关设置。
+- 内置官方 7-Zip 26.03 x64，并对释放后的组件执行 SHA-256 校验。
+- 密码改由标准输入传递，不再进入进程命令行。
+- 增加当前层级、当前压缩包和当前文件展示。
+- 为每一层嵌套压缩包持续显示真实解压进度。
+- 加入真实 7-Zip 双层嵌套解压及加密包回归测试。
+- 补充 7-Zip 的许可、来源、源码和第三方声明。
 
 ## 3.1.0 更新内容
 
 - 新增美化后的步骤进度卡片。
 - 增加重命名文件数进度和当前任务提示。
-- 实时解析 Bandizip 输出的当前压缩包百分比。
 - 增加嵌套扫描、密码等待、人工确认、完成和异常状态。
-- Bandizip 不提供百分比时改用明确的不确定进度，不显示估算值。
+- 解压工具暂未提供百分比时改用明确的不确定进度，不显示估算值。

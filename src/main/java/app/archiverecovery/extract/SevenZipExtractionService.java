@@ -3,6 +3,7 @@ package app.archiverecovery.extract;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,17 +23,25 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
-import java.util.function.IntConsumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class BzExtractionService {
+public final class SevenZipExtractionService {
     private static final int MAX_MESSAGE_LENGTH = 900;
     private static final Pattern PROGRESS_PERCENT = Pattern.compile(
             "(?:^|[\\s\\[\\(:])([0-9]{1,3})\\s*%(?=$|[\\s\\]\\)])");
-    private static final Pattern LIVE_PROGRESS_PERCENT = Pattern.compile(
-            "(?:^|[\\s\\[\\(:])([0-9]{1,3})\\s*%(?=[\\s\\]\\)])");
+    private static final Pattern CURRENT_ENTRY = Pattern.compile(
+            "(?:^|[0-9]{1,3}%\\s*)-\\s+([^\\r\\n]+)$");
     private final ArchiveExtractionPlanner planner = new ArchiveExtractionPlanner();
+    private final BundledSevenZip bundledSevenZip;
+
+    public SevenZipExtractionService() {
+        this(new BundledSevenZip());
+    }
+
+    SevenZipExtractionService(BundledSevenZip bundledSevenZip) {
+        this.bundledSevenZip = bundledSevenZip;
+    }
 
     public ExtractionBatchResult extract(Collection<Path> archives,
                                          ExtractionSettings settings,
@@ -324,12 +333,11 @@ public final class BzExtractionService {
         try {
             while (true) {
                 ProcessAttempt attempt = runProcess(settings, task, password,
-                        percent -> detailedProgress.accept(new ExtractionProgress(
+                        processProgress -> detailedProgress.accept(new ExtractionProgress(
                                 ExtractionProgress.Phase.EXTRACTING,
                                 task.nestedDepth(), completed.get(), total, task.archive(),
-                                "正在解压（" + percent + "%）："
-                                        + task.archive().getFileName(),
-                                percent)));
+                                "正在解压：" + task.archive().getFileName(),
+                                processProgress.percent(), processProgress.currentEntry())));
                 if (attempt.exitCode() == 0) {
                     return new ExtractionResult(task.archive(), task.outputDirectory(), true, 0, "解压成功");
                 }
@@ -361,20 +369,28 @@ public final class BzExtractionService {
     private ProcessAttempt runProcess(ExtractionSettings settings,
                                       ExtractionTask task,
                                       char[] password,
-                                      IntConsumer percentProgress)
+                                      Consumer<SevenZipProcessProgress> processProgress)
             throws IOException, InterruptedException {
-        Process process = new ProcessBuilder(createCommand(settings, task, password))
+        Process process = new ProcessBuilder(createCommand(settings, task))
                 .redirectErrorStream(true)
                 .start();
-        String output = readOutputTail(process.getInputStream(), percentProgress);
+        try (OutputStreamWriter writer = new OutputStreamWriter(
+                process.getOutputStream(), StandardCharsets.UTF_8)) {
+            if (password != null && password.length > 0) {
+                writer.write(password);
+            }
+            writer.write(System.lineSeparator());
+            writer.flush();
+        }
+        String output = readOutputTail(process.getInputStream(), processProgress);
         int exitCode = process.waitFor();
-        return new ProcessAttempt(exitCode, sanitizeOutput(output, password));
+        return new ProcessAttempt(exitCode, sanitizeOutput(output));
     }
 
     private ExtractionResult failedResult(ExtractionTask task, ProcessAttempt attempt) {
         deleteIfEmpty(task.outputDirectory());
         String message = attempt.output().isBlank()
-                ? "bz.exe 返回错误代码 " + attempt.exitCode()
+                ? "7z.exe 返回错误代码 " + attempt.exitCode()
                 : attempt.output();
         return new ExtractionResult(task.archive(), task.outputDirectory(), false,
                 attempt.exitCode(), message);
@@ -399,6 +415,9 @@ public final class BzExtractionService {
         String lower = output == null ? "" : output.toLowerCase(java.util.Locale.ROOT);
         return lower.contains("0xa0000020")
                 || lower.contains("0xa0000021")
+                || lower.contains("enter password")
+                || lower.contains("cannot open encrypted archive")
+                || lower.contains("data error in encrypted file")
                 || lower.contains("password is needed")
                 || lower.contains("password required")
                 || lower.contains("password is required")
@@ -415,27 +434,28 @@ public final class BzExtractionService {
         }
     }
 
-    List<String> createCommand(ExtractionSettings settings, ExtractionTask task, char[] password) {
+    List<String> createCommand(ExtractionSettings settings, ExtractionTask task) throws IOException {
         List<String> command = new ArrayList<>();
-        command.add(settings.bzExecutable().toString());
+        command.add(bundledSevenZip.executable().toString());
         command.add("x");
-        command.add("-consolemode:utf8");
-        command.add("-aou");
         command.add("-y");
-        command.add("-o:" + task.outputDirectory());
-        if (password != null && password.length > 0) {
-            command.add("-p:" + new String(password));
-        }
+        command.add("-aou");
+        command.add("-bb1");
+        command.add("-bsp1");
+        command.add("-bso1");
+        command.add("-bse2");
+        command.add("-sccUTF-8");
+        command.add("-o" + task.outputDirectory());
+        command.add("--");
         command.add(task.archive().toString());
         return command;
     }
 
     private void validateSettings(ExtractionSettings settings) throws IOException {
-        if (!Files.isRegularFile(settings.bzExecutable())) {
-            throw new IOException("找不到 bz.exe：" + settings.bzExecutable());
-        }
-        if (!settings.bzExecutable().getFileName().toString().equalsIgnoreCase("bz.exe")) {
-            throw new IOException("请选择 Bandizip 安装目录中的 bz.exe");
+        Path executable = bundledSevenZip.executable();
+        if (!Files.isRegularFile(executable)
+                || !Files.isRegularFile(executable.resolveSibling("7z.dll"))) {
+            throw new IOException("内置 7-Zip 组件不完整，请重新下载程序");
         }
         if (Files.exists(settings.outputRoot()) && !Files.isDirectory(settings.outputRoot())) {
             throw new IOException("解压根目录不是文件夹：" + settings.outputRoot());
@@ -443,38 +463,57 @@ public final class BzExtractionService {
     }
 
     String readOutputTail(InputStream inputStream,
-                          IntConsumer percentProgress) throws IOException {
+                          Consumer<SevenZipProcessProgress> processProgress) throws IOException {
         StringBuilder tail = new StringBuilder();
-        StringBuilder progressWindow = new StringBuilder();
-        int lastPercent = -1;
+        StringBuilder liveLine = new StringBuilder();
+        SevenZipProcessProgress lastProgress = new SevenZipProcessProgress(-1, "");
         try (InputStreamReader reader = new InputStreamReader(inputStream, StandardCharsets.UTF_8)) {
             char[] buffer = new char[512];
             int length;
             while ((length = reader.read(buffer)) >= 0) {
                 String chunk = new String(buffer, 0, length);
                 tail.append(chunk);
-                progressWindow.append(chunk);
-                Matcher liveMatcher = LIVE_PROGRESS_PERCENT.matcher(progressWindow);
-                while (liveMatcher.find()) {
-                    int candidate = Integer.parseInt(liveMatcher.group(1));
-                    if (candidate <= 100 && candidate != lastPercent) {
-                        lastPercent = candidate;
-                        percentProgress.accept(lastPercent);
+                for (int index = 0; index < length; index++) {
+                    char character = buffer[index];
+                    if (character == '\r' || character == '\n') {
+                        if (!liveLine.isEmpty()) {
+                            lastProgress = reportProgressLine(
+                                    liveLine.toString(), lastProgress, processProgress);
+                            liveLine.setLength(0);
+                        }
+                    } else {
+                        liveLine.append(character);
+                        if (liveLine.length() > 4096) {
+                            liveLine.delete(0, liveLine.length() - 4096);
+                        }
                     }
-                }
-                if (progressWindow.length() > 256) {
-                    progressWindow.delete(0, progressWindow.length() - 256);
                 }
                 if (tail.length() > MAX_MESSAGE_LENGTH * 2) {
                     tail.delete(0, tail.length() - MAX_MESSAGE_LENGTH);
                 }
             }
         }
-        OptionalInt finalPercent = parseProgressPercent(progressWindow.toString());
-        if (finalPercent.isPresent() && finalPercent.getAsInt() != lastPercent) {
-            percentProgress.accept(finalPercent.getAsInt());
+        if (!liveLine.isEmpty()) {
+            reportProgressLine(liveLine.toString(), lastProgress, processProgress);
         }
         return tail.toString();
+    }
+
+    private SevenZipProcessProgress reportProgressLine(
+            String line,
+            SevenZipProcessProgress previous,
+            Consumer<SevenZipProcessProgress> processProgress) {
+        int percent = parseProgressPercent(line).orElse(previous.percent());
+        String currentEntry = previous.currentEntry();
+        Matcher entryMatcher = CURRENT_ENTRY.matcher(line.strip());
+        if (entryMatcher.find()) {
+            currentEntry = entryMatcher.group(1).strip();
+        }
+        SevenZipProcessProgress current = new SevenZipProcessProgress(percent, currentEntry);
+        if (!current.equals(previous)) {
+            processProgress.accept(current);
+        }
+        return current;
     }
 
     OptionalInt parseProgressPercent(String line) {
@@ -495,11 +534,8 @@ public final class BzExtractionService {
         return percent < 0 ? OptionalInt.empty() : OptionalInt.of(percent);
     }
 
-    private String sanitizeOutput(String output, char[] password) {
+    private String sanitizeOutput(String output) {
         String result = output == null ? "" : output.strip();
-        if (password != null && password.length > 0) {
-            result = result.replace(new String(password), "******");
-        }
         if (result.length() > MAX_MESSAGE_LENGTH) {
             result = result.substring(result.length() - MAX_MESSAGE_LENGTH);
         }
@@ -515,6 +551,13 @@ public final class BzExtractionService {
     }
 
     private record ProcessAttempt(int exitCode, String output) {
+    }
+
+    record SevenZipProcessProgress(int percent, String currentEntry) {
+        SevenZipProcessProgress {
+            percent = Math.max(-1, Math.min(100, percent));
+            currentEntry = currentEntry == null ? "" : currentEntry;
+        }
     }
 
     private record NestedPreparation(List<ExtractionTask> tasks,
