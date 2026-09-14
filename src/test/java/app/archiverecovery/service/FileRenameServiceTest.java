@@ -54,12 +54,40 @@ public final class FileRenameServiceTest {
             verifyExplicitMultipartModes(testDirectory, service);
             verifyNormalAndMultipartModesAreSeparated(testDirectory, service);
             verifyNoisyMultipartSuffixRecovery(testDirectory, service);
+            verifyVolumeNumberBeforeTrailingDisguise(testDirectory, service);
             verifyDisturbedOrdinalsAndIndependentGroups(testDirectory, service);
 
             System.out.println("FileRenameService tests passed.");
         } finally {
             deleteTestDirectory(testDirectory);
         }
+    }
+
+    private static void verifyVolumeNumberBeforeTrailingDisguise(Path directory,
+                                                                  FileRenameService service) throws IOException {
+        Path caseDirectory = Files.createDirectories(directory.resolve("volume-before-trailing-disguise"));
+        Path first = Files.writeString(
+                caseDirectory.resolve("YF-删除后缀.pdf后解压.001.PDF"), "one");
+        Path second = Files.writeString(
+                caseDirectory.resolve("YF-删除后缀.pdf后解压.002.PDF"), "two");
+        Path third = Files.writeString(
+                caseDirectory.resolve("YF-删除后缀.pdf后解压.003.PDF"), "three");
+        List<Path> sources = List.of(first, second, third);
+
+        List<RenameItem> sevenZipPlan = service.createPlan(sources, RenameMode.SEVEN_ZIP_MULTIPART);
+        assertTarget(sevenZipPlan, first.getFileName().toString(), "YF-删除后缀.7z.001");
+        assertTarget(sevenZipPlan, second.getFileName().toString(), "YF-删除后缀.7z.002");
+        assertTarget(sevenZipPlan, third.getFileName().toString(), "YF-删除后缀.7z.003");
+
+        List<RenameItem> zipPlan = service.createPlan(sources, RenameMode.ZIP_MULTIPART);
+        assertTarget(zipPlan, first.getFileName().toString(), "YF-删除后缀.zip");
+        assertTarget(zipPlan, second.getFileName().toString(), "YF-删除后缀.z01");
+        assertTarget(zipPlan, third.getFileName().toString(), "YF-删除后缀.z02");
+
+        List<RenameItem> rarPlan = service.createPlan(sources, RenameMode.RAR_MULTIPART);
+        assertTarget(rarPlan, first.getFileName().toString(), "YF-删除后缀.part1.rar");
+        assertTarget(rarPlan, second.getFileName().toString(), "YF-删除后缀.part2.rar");
+        assertTarget(rarPlan, third.getFileName().toString(), "YF-删除后缀.part3.rar");
     }
 
     private static void verifyNoisyMultipartSuffixRecovery(Path directory,
@@ -70,9 +98,9 @@ public final class FileRenameServiceTest {
         Path unnumbered7z = Files.writeString(sevenZipCase.resolve("2025.06.7z"), "three");
         List<RenameItem> sevenZipPlan = service.createPlan(
                 List.of(noisy7zTwo, noisy7zOne, unnumbered7z), RenameMode.SEVEN_ZIP_MULTIPART);
-        assertTarget(sevenZipPlan, "2025.06.7z.321.002", "2025.06.7z.002");
-        assertTarget(sevenZipPlan, "2025.06.71z.001", "2025.06.7z.001");
-        assertTarget(sevenZipPlan, "2025.06.7z", "2025.06.7z.003");
+        assertTarget(sevenZipPlan, "2025.06.7z.321.002", "2025.7z.002");
+        assertTarget(sevenZipPlan, "2025.06.71z.001", "2025.7z.001");
+        assertTarget(sevenZipPlan, "2025.06.7z", "2025.7z.003");
 
         Path zipCase = Files.createDirectories(directory.resolve("noisy-zip"));
         Path noisyZipTwo = Files.writeString(zipCase.resolve("2025.06.zip.321.002"), "two");
@@ -80,9 +108,9 @@ public final class FileRenameServiceTest {
         Path unnumberedZip = Files.writeString(zipCase.resolve("2025.06.zip"), "three");
         List<RenameItem> zipPlan = service.createPlan(
                 List.of(noisyZipTwo, noisyZipOne, unnumberedZip), RenameMode.ZIP_MULTIPART);
-        assertTarget(zipPlan, "2025.06.zip.321.002", "2025.06.z01");
-        assertTarget(zipPlan, "2025.06.z1ip.001", "2025.06.z02");
-        assertStatus(zipPlan, "2025.06.zip", RenameStatus.UNCHANGED);
+        assertTarget(zipPlan, "2025.06.zip.321.002", "2025.z01");
+        assertTarget(zipPlan, "2025.06.z1ip.001", "2025.zip");
+        assertTarget(zipPlan, "2025.06.zip", "2025.z02");
 
         Path rarCase = Files.createDirectories(directory.resolve("noisy-rar"));
         Path noisyRarOne = Files.writeString(rarCase.resolve("2025.06.part001.r1ar"), "one");
@@ -90,9 +118,9 @@ public final class FileRenameServiceTest {
         Path unnumberedRar = Files.writeString(rarCase.resolve("2025.06.rar"), "three");
         List<RenameItem> rarPlan = service.createPlan(
                 List.of(noisyRarOne, noisyRarTwo, unnumberedRar), RenameMode.RAR_MULTIPART);
-        assertTarget(rarPlan, "2025.06.part001.r1ar", "2025.06.part1.rar");
-        assertTarget(rarPlan, "2025.06.part002.rar321", "2025.06.part2.rar");
-        assertTarget(rarPlan, "2025.06.rar", "2025.06.part3.rar");
+        assertTarget(rarPlan, "2025.06.part001.r1ar", "2025.part1.rar");
+        assertTarget(rarPlan, "2025.06.part002.rar321", "2025.part2.rar");
+        assertTarget(rarPlan, "2025.06.rar", "2025.part3.rar");
     }
 
     private static void verifyNormalAndMultipartModesAreSeparated(Path directory,
@@ -160,14 +188,14 @@ public final class FileRenameServiceTest {
         Path embeddedFormatVolume = Files.writeString(caseOne.resolve("2025.06.7z.002"), "second");
         List<RenameItem> embeddedFormatPlan = service.createPlan(
                 List.of(embeddedFormat, embeddedFormatVolume), RenameMode.SEVEN_ZIP_MULTIPART);
-        assertTarget(embeddedFormatPlan, "2025.06.7z.mp3", "2025.06.7z.001");
+        assertTarget(embeddedFormatPlan, "2025.06.7z.mp3", "2025.7z.001");
 
         Path caseTwo = Files.createDirectories(directory.resolve("case-two"));
         Path noExtension = Files.writeString(caseTwo.resolve("2025.06"), "no-extension");
         Path sameBaseVolume = Files.writeString(caseTwo.resolve("2025.06.7z.002"), "second");
         List<RenameItem> sameBasePlan = service.createPlan(
                 List.of(noExtension, sameBaseVolume), RenameMode.SEVEN_ZIP_MULTIPART);
-        assertTarget(sameBasePlan, "2025.06", "2025.06.7z.001");
+        assertTarget(sameBasePlan, "2025.06", "2025.7z.001");
 
         Path caseThree = Files.createDirectories(directory.resolve("case-three"));
         Path realExtension = Files.writeString(caseThree.resolve("2025.06"), "has-extension");
@@ -193,7 +221,7 @@ public final class FileRenameServiceTest {
         Path fake = Files.writeString(zipCase.resolve("2025.06.zip.mp3"), "first");
         Path second = Files.writeString(zipCase.resolve("2025.06.zip.002"), "second");
         List<RenameItem> plan = service.createPlan(List.of(fake, second), RenameMode.ZIP_MULTIPART);
-        assertTarget(plan, "2025.06.zip.mp3", "2025.06.zip");
+        assertTarget(plan, "2025.06.zip.mp3", "2025.zip");
 
         Path occupiedCase = Files.createDirectories(directory.resolve("zip-occupied"));
         Path unnumbered = Files.writeString(occupiedCase.resolve("1"), "third");
@@ -218,7 +246,7 @@ public final class FileRenameServiceTest {
         Path fake = Files.writeString(rarCase.resolve("2025.06.rar.mp3"), "first");
         Path second = Files.writeString(rarCase.resolve("2025.06.part002.rar"), "second");
         List<RenameItem> plan = service.createPlan(List.of(fake, second), RenameMode.RAR_MULTIPART);
-        assertTarget(plan, "2025.06.rar.mp3", "2025.06.part1.rar");
+        assertTarget(plan, "2025.06.rar.mp3", "2025.part1.rar");
 
         Path occupiedCase = Files.createDirectories(directory.resolve("rar-occupied"));
         Path unnumbered = Files.writeString(occupiedCase.resolve("1"), "third");

@@ -28,6 +28,8 @@ final class MultipartRenamePlanner {
             Pattern.compile("^(.+)\\.r(\\d{2,})$", Pattern.CASE_INSENSITIVE);
     private static final Pattern PART_NUMBER_ANYWHERE =
             Pattern.compile("part(\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern VOLUME_BEFORE_TRAILING_DISGUISE =
+            Pattern.compile("\\.(\\d{3,})\\.([^.]+)$", Pattern.CASE_INSENSITIVE);
     private static final Pattern TRAILING_DIGITS = Pattern.compile("(\\d{3,})$");
     private static final Pattern NOISY_Z_NUMBER =
             Pattern.compile("^z.*?(\\d{2})$", Pattern.CASE_INSENSITIVE);
@@ -82,7 +84,7 @@ final class MultipartRenamePlanner {
         for (int index = 1; index < entries.size() && commonBase != null; index++) {
             commonBase = commonDotPrefix(commonBase, entries.get(index).fileName);
         }
-        commonBase = sanitizeBase(commonBase);
+        commonBase = commonBase == null ? null : baseNameBeforeFirstDot(commonBase);
 
         if (commonBase == null || commonBase.isBlank()) {
             commonBase = entries.stream()
@@ -114,23 +116,43 @@ final class MultipartRenamePlanner {
 
     private Entry parseEntry(Path path, RenameMode mode) {
         String name = path.getFileName().toString();
+        String baseName = baseNameBeforeFirstDot(name);
+        Integer wrappedVolumeNumber = extractVolumeBeforeTrailingDisguise(name);
+        if (wrappedVolumeNumber != null) {
+            return new Entry(path, name, baseName, wrappedVolumeNumber, false);
+        }
+
         ParsedVolume parsed = parseCanonicalVolume(name);
         if (parsed != null) {
-            return new Entry(path, name, sanitizeBase(parsed.baseName()), parsed.number(), false);
+            return new Entry(path, name, baseName, parsed.number(), false);
         }
 
         String extension = ExtensionService.extensionOf(name);
         if (mode == RenameMode.ZIP_MULTIPART && extension.equals("zip")) {
-            return new Entry(path, name, sanitizeBase(baseNameOf(name)), 1, true);
+            boolean alreadyOfficial = name.equalsIgnoreCase(officialName(baseName, 1, mode));
+            return new Entry(path, name, baseName, 1, alreadyOfficial);
         }
         if (mode == RenameMode.ZIP_MULTIPART
                 && looksLikeDisturbedZipEntry(lastSegment(name))) {
-            return new Entry(path, name, sanitizeBase(baseNameOf(name)), 1, false);
+            return new Entry(path, name, baseName, 1, false);
         }
         if (extension.equals("zip") || extension.equals("7z") || extension.equals("rar")) {
-            return new Entry(path, name, sanitizeBase(baseNameOf(name)), null, false);
+            return new Entry(path, name, baseName, null, false);
         }
-        return new Entry(path, name, null, extractDisturbedNumber(name, mode), false);
+        return new Entry(path, name, baseName, extractDisturbedNumber(name, mode), false);
+    }
+
+    private Integer extractVolumeBeforeTrailingDisguise(String name) {
+        Matcher matcher = VOLUME_BEFORE_TRAILING_DISGUISE.matcher(name);
+        if (!matcher.find() || matcher.group(2).chars().allMatch(Character::isDigit)) {
+            return null;
+        }
+        return safeParseDigits(matcher.group(1));
+    }
+
+    private String baseNameBeforeFirstDot(String fileName) {
+        int firstDot = fileName.indexOf('.');
+        return firstDot > 0 ? fileName.substring(0, firstDot) : baseNameOf(fileName);
     }
 
     private ParsedVolume parseCanonicalVolume(String name) {
